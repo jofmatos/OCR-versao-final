@@ -92,6 +92,8 @@
     $("copyText").disabled = !currentPage()?.method || state.busy;
     $("pageText").readOnly = locked;
     if ($("prepareModels")) $("prepareModels").disabled = state.busy || isProcessing() || Boolean(window.LumeBrowser?.workerPromise);
+    if ($("installAdvanced")) $("installAdvanced").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
+    if ($("ocrEngine")) $("ocrEngine").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
     $("previousPage").disabled = !state.doc || state.page <= 1;
     $("nextPage").disabled = !state.doc || state.page >= state.doc.page_count;
     $("zoomOut").disabled = state.zoom <= 50;

@@ -8,10 +8,12 @@
     "serve": "python3 -m http.server 8080 --bind 127.0.0.1 --directory docs"
   },
   "dependencies": {
+    "@paddleocr/paddleocr-js": "0.4.2",
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/por": "1.0.0",
     "@tesseract.js-data/spa": "1.0.0",
     "docx": "9.8.1",
+    "onnxruntime-web": "1.24.3",
     "pdfjs-dist": "6.3.289",
     "tesseract.js": "7.0.0"
   },

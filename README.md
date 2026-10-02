@@ -6,7 +6,11 @@ Leitor de PDF e conversor para **DOCX editável** ou **TXT**, com OCR em portugu
 
 A versão estática funciona em um site HTTPS, inclusive no GitHub Pages. **Seu computador executa o PDF e o OCR: nenhum PDF ou texto é enviado ao servidor.** Ela usa PDF.js, Tesseract.js/WebAssembly e os modelos oficiais `best_int`, da família best, quantizados para esse motor. Os modelos de ponto flutuante da versão Python não são compatíveis com a compilação WebAssembly utilizada. Não exige Python, Homebrew, chave de API nem um servidor de processamento no computador do usuário.
 
-Abra o site, escolha **Preparar OCR neste dispositivo** ou comece a extrair um PDF escaneado. Na primeira vez, os modelos de português e inglês são baixados (cerca de 4,3 MB, mais o motor). Nas próximas vezes, o navegador reutiliza os modelos guardados. Espanhol é baixado se selecionado. Mantenha a página aberta durante a conversão. O limite de pixels é reduzido em dispositivos com pouca memória; a velocidade depende do seu computador.
+O botão **Instalar OCR avançado** prepara **PaddleOCR v5 mobile com reconhecimento latino**, para português, inglês e espanhol. Baixa cerca de 13 MB de modelos, além de aproximadamente 35 MB do motor, verifica SHA-256 e guarda os arquivos no navegador. Depois de concluir, o motor avançado é selecionado automaticamente e lembrado nas próximas aberturas. O menu **Motor de leitura** permite voltar ao Tesseract. Se o download falhar, o motor atual continua disponível; não há troca silenciosa durante uma conversão.
+
+**Validação pendente do PaddleOCR:** este ambiente de desenvolvimento bloqueou os servidores dos pesos ONNX. O build e o tratamento de falhas são verificáveis, mas o reconhecimento com os modelos v5 escolhidos ainda precisa ser validado antes de afirmar ganho de qualidade. A instalação depende de acesso aos domínios dos modelos. Não foram testados documentos reais do usuário.
+
+Para o motor básico, escolha **Preparar OCR básico** ou comece a extrair um PDF escaneado. Na primeira vez, os modelos de português e inglês são baixados (cerca de 4,3 MB, mais o motor). Nas próximas vezes, o navegador reutiliza os modelos guardados. Espanhol é baixado se selecionado. Mantenha a página aberta durante a conversão. O limite de pixels é reduzido em dispositivos com pouca memória; a velocidade depende do seu computador.
 
 No Safari recente do Mac, use **Arquivo → Adicionar ao Dock** para abrir como um aplicativo. No Chrome, use a opção de instalar na barra de endereço ou o botão da interface quando disponível. Após preparar os modelos e carregar o site uma vez, a reabertura e o OCR no idioma já preparado funcionam offline. Recursos de PDF ainda não usados (por exemplo fontes especiais) podem precisar de conexão na primeira vez. Os documentos e edições são guardados apenas no armazenamento local do navegador, recuperados após recarga e removidos por você ou após 24 horas na próxima abertura. Limpar os dados do site também remove os modelos e documentos.
 
@@ -15,13 +19,13 @@ Para construir/hospedar essa versão:
 ```bash
 npm ci
 npm run build
-# A pasta docs/ contém todo o site, motor e modelos. Para testar localmente:
+# A pasta docs/ contém o site, os motores e os modelos básicos. Para testar localmente:
 npm run serve
 ```
 
 O build precisa de Node.js 22+. Bibliotecas e modelos têm versões fixadas e integridade verificada pelo `npm ci`. Quem usa o site precisa somente de um navegador recente. Sirva `docs/` por HTTP/HTTPS; abrir o `index.html` diretamente pelo Finder não funciona, porque navegadores restringem workers e módulos em arquivos locais. A instalação pelo navegador fornece a abertura como aplicativo sem essa limitação.
 
-O workflow `.github/workflows/pages.yml` constrói e publica `docs/`. No GitHub, habilite **Settings → Pages → Source: GitHub Actions**; depois execute **Actions → Publicar Lume OCR → Run workflow**, ou envie um commit para `main`. A URL deve ser confirmada na saída do deploy. Bibliotecas, workers e modelos são servidos pelo próprio site; a interface não depende de CDNs externos.
+O workflow `.github/workflows/pages.yml` constrói e publica `docs/`. No GitHub, habilite **Settings → Pages → Source: GitHub Actions**; depois execute **Actions → Publicar Lume OCR → Run workflow**, ou envie um commit para `main`. A URL deve ser confirmada na saída do deploy. Bibliotecas, workers e modelos Tesseract são servidos pelo próprio site. Os pesos PaddleOCR são baixados, somente na instalação, de `media.githubusercontent.com` e `raw.githubusercontent.com`, do repositório `PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models` na revisão `384182c7187c12d4ea181ae3b97c8b7e12089d9d`; cada arquivo é verificado pelo SHA-256 fixado em `browser/paddle-worker.js`. Os modelos e o dicionário são redistribuídos sob Apache-2.0. Nenhum PDF ou texto é incluído nesses pedidos. O SDK oficial `@paddleocr/paddleocr-js` e ONNX Runtime Web são fixados no lockfile; a execução usa um worker separado e WASM com uma thread, compatível com hospedagem sem headers COOP/COEP. O adaptador usa `cv.Mat`, suportado pelo SDK, a partir do OpenCV da instância fixada.
 
 Para testar essa versão com OCR real, downloads, edições, recarga, celular, funcionamento offline e ausência de uploads:
 

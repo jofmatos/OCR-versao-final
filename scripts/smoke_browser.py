@@ -56,6 +56,17 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
         page.goto(base_url, wait_until="networkidle")
         expect(page.locator("#connectionLabel")).to_have_text("OCR disponível")
         page.screenshot(path=str(artifacts / "desktop.png"), full_page=True)
+        if browser_mode:
+            # A failed model installation must leave the working engine usable.
+            context.route("https://media.githubusercontent.com/**", lambda route: route.fulfill(status=503, body="Unavailable", headers={"Access-Control-Allow-Origin": "*"}))
+            context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(status=503, body="Unavailable", headers={"Access-Control-Allow-Origin": "*"}))
+            page.locator("#installAdvanced").click()
+            expect(page.locator("#modelStatus")).to_contain_text("OCR básico continua disponível", timeout=30000)
+            expect(page.locator("#installAdvanced")).to_be_enabled()
+            expect(page.locator("#ocrEngine")).to_have_value("tesseract")
+            context.unroute("https://media.githubusercontent.com/**")
+            context.unroute("https://raw.githubusercontent.com/**")
+            print("Advanced install failure OK: clear error; basic engine preserved.")
 
         page.locator("#fileInput").set_input_files(str(native))
         expect(page.locator("#documentName")).to_have_text(native.name)

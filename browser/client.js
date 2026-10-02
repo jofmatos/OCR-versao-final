@@ -1,6 +1,7 @@
 import * as pdfjs from "pdfjs-dist/build/pdf.mjs";
 import { createWorker, OEM, PSM } from "tesseract.js";
 import { Document, Packer, Paragraph, TextRun } from "docx";
+import { PaddleClient } from "./paddle-client.js";
 
 const asset = (path) => new URL(`../${path}`, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset("vendor/pdf/pdf.worker.min.mjs");
@@ -164,6 +165,9 @@ class BrowserClient {
   worker = null;
   workerLanguage = null;
   workerPromise = null;
+  paddle = null;
+  paddlePromise = null;
+  engine = (() => { try { return localStorage.getItem("lume-ocr-engine") === "paddle" ? "paddle" : "tesseract"; } catch { return "tesseract"; } })();
   previews = new Map();
   generation = 0;
 
@@ -233,6 +237,34 @@ class BrowserClient {
 
   async install(language = "por+eng") { return this.ensureWorker(language); }
 
+  async ensurePaddle() {
+    if (this.paddlePromise) return this.paddlePromise;
+    if (this.paddle?.alive) return this.paddle;
+    this.paddle = null;
+    const paddle = new PaddleClient((message) => {
+      modelStatus(message);
+      if (this.record?.doc.status === "processing") this.record.doc.progress.message = message;
+    });
+    this.paddlePromise = (async () => {
+      try {
+        await paddle.request("init");
+        this.paddle = paddle;
+        modelStatus("PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline.");
+        return paddle;
+      } catch (error) {
+        paddle.terminate();
+        throw failure(`Não foi possível instalar o PaddleOCR. Confira a conexão e o espaço do navegador. ${error.message}`);
+      } finally { this.paddlePromise = null; }
+    })();
+    return this.paddlePromise;
+  }
+
+  async installAdvanced() {
+    await this.ensurePaddle();
+    this.engine = "paddle";
+    try { localStorage.setItem("lume-ocr-engine", "paddle"); } catch { /* Model remains ready in this session. */ }
+  }
+
   async preview(id, number) {
     const record = await this.recordFor(id);
     if (number < 1 || number > record.doc.page_count) throw failure("Página não encontrada.", 404);
@@ -269,20 +301,22 @@ class BrowserClient {
           scanned = images || (Boolean(compact.length) && scanned);
         }
         if (options.mode === "ocr" || scanned) {
-          const worker = await this.ensureWorker(options.language);
+          const advanced = options.engine === "paddle";
+          const worker = advanced ? await this.ensurePaddle() : await this.ensureWorker(options.language);
           if (!stillActive()) return;
           const canvas = await renderPage(this.pdf, number, { quality: options.quality });
           try {
-            const result = await worker.recognize(canvas, { rotateAuto: true }, { text: true, blocks: false });
-            text = result.data.text.trim();
-            confidence = Number.isFinite(result.data.confidence) ? Math.round(result.data.confidence * 10) / 10 : null;
+            const result = advanced ? await worker.recognize(canvas, options.quality) :
+              (await worker.recognize(canvas, { rotateAuto: true }, { text: true, blocks: false })).data;
+            text = result.text.trim();
+            confidence = Number.isFinite(result.confidence) ? Math.round(result.confidence * 10) / 10 : null;
             method = "ocr";
             if (confidence !== null && confidence < 65) warnings.push("Baixa confiança do OCR. Confira a transcrição com o original.");
           } finally { canvas.width = canvas.height = 0; }
         }
         if (!stillActive()) return;
         if (!text) warnings.push("Nenhum texto encontrado nesta página. Confira o original.");
-        record.doc.pages.push({ number, text, method, confidence, warnings });
+        record.doc.pages.push({ number, text, method, confidence, warnings, engine: method === "ocr" ? options.engine : null });
         record.doc.progress.completed = record.doc.pages.length;
         record.doc.progress.message = "Lendo seu documento no navegador…";
         record.updated_at = Date.now();
@@ -293,7 +327,7 @@ class BrowserClient {
       record.doc.status = "ready";
       record.updated_at = Date.now();
       await this.persist(record);
-      modelStatus(this.worker ? "OCR pronto neste dispositivo. Modelos guardados no navegador." : "Texto lido diretamente do PDF, no seu computador.");
+      modelStatus(this.paddle ? "PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline." : this.worker ? "OCR básico pronto neste dispositivo. Modelos guardados no navegador." : "Texto lido diretamente do PDF, no seu computador.");
     } catch (error) {
       if (!stillActive()) return;
       record.doc.status = "error";
@@ -355,6 +389,7 @@ class BrowserClient {
       const pdf = this.pdf;
       this.pdf = null;
       if (this.worker) { await this.worker.terminate(); this.worker = null; this.workerLanguage = null; }
+      if (this.paddle) { this.paddle.terminate(); this.paddle = null; }
       if (pdf) await pdf.loadingTask.destroy().catch(() => {});
       for (const url of this.previews.values()) URL.revokeObjectURL(url);
       this.previews.clear();
@@ -363,6 +398,7 @@ class BrowserClient {
     if (match[2] === "convert" && method === "POST") {
       if (record.doc.status === "processing") throw failure("Este documento já está em processamento.", 409);
       const settings = JSON.parse(options.body);
+      settings.engine = this.engine;
       if (!["auto", "ocr"].includes(settings.mode) || !["high", "standard"].includes(settings.quality)) throw failure("Confira as opções de extração.");
       const selected = pageSelection(settings.pages || "", record.doc.page_count);
       record.doc.status = "processing";
@@ -400,6 +436,26 @@ prepare?.addEventListener("click", async () => {
   try { await window.LumeBrowser.install(document.getElementById("language")?.value || "por+eng"); }
   catch (error) { modelStatus(error.message); }
   finally { prepare.disabled = false; }
+});
+
+const advancedButton = document.getElementById("installAdvanced");
+const engineSelect = document.getElementById("ocrEngine");
+if (engineSelect) engineSelect.value = window.LumeBrowser.engine;
+engineSelect?.addEventListener("change", () => {
+  window.LumeBrowser.engine = engineSelect.value;
+  try { localStorage.setItem("lume-ocr-engine", engineSelect.value); } catch { /* Keep the selection in memory. */ }
+  modelStatus(engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
+});
+advancedButton?.addEventListener("click", async () => {
+  advancedButton.disabled = true;
+  engineSelect.disabled = true;
+  try {
+    await window.LumeBrowser.installAdvanced();
+    engineSelect.value = "paddle";
+    advancedButton.textContent = "OCR avançado instalado";
+    try { await navigator.storage?.persist?.(); } catch { /* The browser may manage storage persistence itself. */ }
+  } catch (error) { modelStatus(`${error.message} O OCR básico continua disponível.`); }
+  finally { advancedButton.disabled = false; engineSelect.disabled = false; }
 });
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
