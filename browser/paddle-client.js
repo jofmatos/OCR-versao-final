@@ -3,7 +3,9 @@ export class PaddleClient {
     this.pending = new Map();
     this.counter = 0;
     this.alive = true;
-    this.worker = new Worker(new URL("./paddle-worker.js", import.meta.url), { type: "module" });
+    const workerUrl = new URL("./paddle-worker.js", import.meta.url);
+    workerUrl.search = new URL(import.meta.url).search;
+    this.worker = new Worker(workerUrl, { type: "module" });
     this.worker.onmessage = ({ data }) => {
       if (data.progress) { onProgress(data.progress); return; }
       const pending = this.pending.get(data.id);

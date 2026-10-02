@@ -33,13 +33,14 @@ html = html.replace("Processado neste servidor. Exclusão automática em 24 h, o
 html = html.replace('  <meta name="theme-color"', '  <link rel="manifest" href="./manifest.webmanifest">\n  <meta name="theme-color"');
 html = html.replace('      <section id="emptyState"', `      <section class="local-model-panel" aria-label="OCR no dispositivo"><div><strong>Instale um motor de OCR neste navegador</strong><p id="modelStatus" role="status" aria-live="polite">PaddleOCR v5 para português, inglês e espanhol. O primeiro uso baixa cerca de 13 MB de modelos, além do motor. Seus PDFs ficam neste computador.</p><label for="ocrEngine">Motor de leitura</label><select id="ocrEngine"><option value="paddle">PaddleOCR · avançado (experimental)</option><option value="tesseract" selected>Tesseract · básico</option></select></div><div class="local-actions"><button class="button primary small" id="installAdvanced">Instalar OCR avançado</button><button class="button secondary small" id="prepareModels">Preparar OCR básico</button><button class="button dark small" id="installApp" hidden>Usar como aplicativo</button></div></section>\n      <section id="emptyState"`);
 html = html.replace("O resultado pode precisar de revisão, especialmente em manuscritos e tabelas.", "Deixe esta página aberta durante a extração. Revise manuscritos, números e tabelas.");
-await writeFile(path.join(output, "index.html"), html);
 await writeFile(path.join(output, ".nojekyll"), "");
 await mkdir(path.join(output, "icons"), { recursive: true });
 for (const size of [192, 512]) await cp(`browser/icons/icon-${size}.png`, path.join(output, "icons", `icon-${size}.png`));
 await writeFile(path.join(output, "manifest.webmanifest"), JSON.stringify({ name: "Lume OCR", short_name: "Lume OCR", lang: "pt-BR", start_url: "./", scope: "./", display: "standalone", background_color: "#f8f9f7", theme_color: "#17272f", icons: [192, 512].map((size) => ({ src: `./icons/icon-${size}.png`, sizes: `${size}x${size}`, type: "image/png", purpose: "any maskable" })) }, null, 2));
 let worker = await readFile("browser/sw.js", "utf8");
-const version = createHash("sha256").update(await readFile(path.join(output, "static/browser.js"))).update(await readFile(path.join(output, "static/paddle-worker.js"))).update(await readFile(path.join(output, "static/app.js"))).update(await readFile(path.join(output, "static/styles.css"))).update(html).digest("hex").slice(0, 12);
-worker = worker.replace("lume-browser-v1", `lume-browser-${version}`);
+const version = createHash("sha256").update(await readFile(path.join(output, "static/browser.js"))).update(await readFile(path.join(output, "static/paddle-worker.js"))).update(await readFile(path.join(output, "static/app.js"))).update(await readFile(path.join(output, "static/styles.css"))).update(html).update(worker).digest("hex").slice(0, 12);
+html = html.replaceAll('./static/styles.css"', `./static/styles.css?v=${version}"`).replaceAll('./static/browser.js"', `./static/browser.js?v=${version}"`);
+await writeFile(path.join(output, "index.html"), html);
+worker = worker.replace("lume-browser-v1", `lume-browser-${version}`).replace("__BUILD_VERSION__", version);
 await writeFile(path.join(output, "sw.js"), worker);
 console.log("Versão de navegador preparada em docs/ (sem servidor de aplicação, CDNs ou envio de PDFs).");

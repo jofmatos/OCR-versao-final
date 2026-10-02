@@ -81,7 +81,8 @@
   function canExport() { return state.doc?.status === "ready" && hasText(); }
 
   function updateControls() {
-    const locked = state.busy || isProcessing() || state.exporting;
+    const installing = Boolean(window.LumeBrowser?.paddlePromise);
+    const locked = state.busy || isProcessing() || state.exporting || installing;
     $("chooseFile").disabled = state.busy;
     $("removeFile").disabled = state.busy || state.exporting;
     $("convertButton").disabled = locked || !state.doc;
@@ -91,7 +92,7 @@
     $("saveText").disabled = locked || !state.edits.size;
     $("copyText").disabled = !currentPage()?.method || state.busy;
     $("pageText").readOnly = locked;
-    if ($("prepareModels")) $("prepareModels").disabled = state.busy || isProcessing() || Boolean(window.LumeBrowser?.workerPromise);
+    if ($("prepareModels")) $("prepareModels").disabled = locked || Boolean(window.LumeBrowser?.workerPromise);
     if ($("installAdvanced")) $("installAdvanced").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
     if ($("ocrEngine")) $("ocrEngine").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
     $("previousPage").disabled = !state.doc || state.page <= 1;
@@ -500,5 +501,6 @@
   window.addEventListener("beforeunload", (event) => {
     if (state.edits.size) { event.preventDefault(); event.returnValue = ""; }
   });
+  window.addEventListener("lume-model-state", updateControls);
   initialize();
 })();

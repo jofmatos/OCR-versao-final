@@ -1,6 +1,7 @@
 const CACHE = "lume-browser-v1";
+const VERSION = "__BUILD_VERSION__";
 const base = new URL("./", self.location.href);
-const shell = ["./", "index.html", "static/styles.css", "static/favicon.svg", "static/app.js", "static/browser.js", "vendor/pdf/pdf.worker.min.mjs"];
+const shell = ["./", "index.html", `static/styles.css?v=${VERSION}`, "static/favicon.svg", `static/app.js?v=${VERSION}`, `static/browser.js?v=${VERSION}`, "vendor/pdf/pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(shell.map((path) => new URL(path, base).href))));

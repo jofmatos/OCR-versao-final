@@ -57,16 +57,40 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
         expect(page.locator("#connectionLabel")).to_have_text("OCR disponível")
         page.screenshot(path=str(artifacts / "desktop.png"), full_page=True)
         if browser_mode:
+            # New HTML must not reuse old, unversioned code from an active SW.
+            page.evaluate("navigator.serviceWorker.ready.then(() => true)")
+            page.wait_for_function("navigator.serviceWorker.controller !== null")
+            page.evaluate("""async () => {
+                const key = (await caches.keys()).find(key => key.startsWith('lume-browser-'));
+                const cache = await caches.open(key);
+                for (const path of ['static/browser.js', 'static/app.js', 'static/paddle-worker.js']) {
+                    await cache.put(new URL(path, document.baseURI), new Response('self.oldCachedCode = true;', {headers: {'Content-Type': 'text/javascript'}}));
+                }
+            }""")
+            page.reload(wait_until="networkidle")
+            expect(page.locator("#connectionLabel")).to_have_text("OCR disponível")
+            assert not page.evaluate("Boolean(window.oldCachedCode)"), "Old cached script was reused"
             # A failed model installation must leave the working engine usable.
             context.route("https://media.githubusercontent.com/**", lambda route: route.fulfill(status=503, body="Unavailable", headers={"Access-Control-Allow-Origin": "*"}))
             context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(status=503, body="Unavailable", headers={"Access-Control-Allow-Origin": "*"}))
+            delayed_worker = []
+            context.route("**/static/paddle-worker.js*", lambda route: delayed_worker.append(route))
             page.locator("#installAdvanced").click()
+            expect(page.locator("#modelStatus")).to_contain_text("Preparando OCR avançado")
+            expect(page.locator("#installAdvanced")).to_have_text("Instalando OCR avançado…")
+            expect(page.locator("#prepareModels")).to_be_disabled()
+            expect(page.locator("#ocrEngine")).to_be_disabled()
+            page.wait_for_timeout(200)
+            assert delayed_worker, "Advanced worker was not requested"
+            delayed_worker[0].continue_()
+            context.unroute("**/static/paddle-worker.js*")
             expect(page.locator("#modelStatus")).to_contain_text("OCR básico continua disponível", timeout=30000)
             expect(page.locator("#installAdvanced")).to_be_enabled()
+            expect(page.locator("#installAdvanced")).to_have_text("Tentar instalar OCR avançado")
             expect(page.locator("#ocrEngine")).to_have_value("tesseract")
             context.unroute("https://media.githubusercontent.com/**")
             context.unroute("https://raw.githubusercontent.com/**")
-            print("Advanced install failure OK: clear error; basic engine preserved.")
+            print("Advanced install OK: versioned code ignores stale cache; slow startup shows feedback; download failure preserves basic engine.")
 
         page.locator("#fileInput").set_input_files(str(native))
         expect(page.locator("#documentName")).to_have_text(native.name)

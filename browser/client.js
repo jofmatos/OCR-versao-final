@@ -16,6 +16,7 @@ const modelStatus = (text) => {
   const node = document.getElementById("modelStatus");
   if (node) node.textContent = text;
 };
+const modelStateChanged = () => window.dispatchEvent(new Event("lume-model-state"));
 
 function failure(message, status = 400) {
   const error = new Error(message);
@@ -241,6 +242,7 @@ class BrowserClient {
     if (this.paddlePromise) return this.paddlePromise;
     if (this.paddle?.alive) return this.paddle;
     this.paddle = null;
+    modelStatus("Preparando OCR avançado… Carregando o motor neste navegador.");
     const paddle = new PaddleClient((message) => {
       modelStatus(message);
       if (this.record?.doc.status === "processing") this.record.doc.progress.message = message;
@@ -254,8 +256,9 @@ class BrowserClient {
       } catch (error) {
         paddle.terminate();
         throw failure(`Não foi possível instalar o PaddleOCR. Confira a conexão e o espaço do navegador. ${error.message}`);
-      } finally { this.paddlePromise = null; }
+      } finally { this.paddlePromise = null; modelStateChanged(); }
     })();
+    modelStateChanged();
     return this.paddlePromise;
   }
 
@@ -448,14 +451,23 @@ engineSelect?.addEventListener("change", () => {
 });
 advancedButton?.addEventListener("click", async () => {
   advancedButton.disabled = true;
+  advancedButton.textContent = "Instalando OCR avançado…";
   engineSelect.disabled = true;
+  modelStatus("Preparando OCR avançado… Carregando o motor neste navegador.");
+  let installed = false;
   try {
     await window.LumeBrowser.installAdvanced();
     engineSelect.value = "paddle";
+    modelStatus("PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline.");
     advancedButton.textContent = "OCR avançado instalado";
+    installed = true;
     try { await navigator.storage?.persist?.(); } catch { /* The browser may manage storage persistence itself. */ }
   } catch (error) { modelStatus(`${error.message} O OCR básico continua disponível.`); }
-  finally { advancedButton.disabled = false; engineSelect.disabled = false; }
+  finally {
+    if (!installed) advancedButton.textContent = "Tentar instalar OCR avançado";
+    advancedButton.disabled = false; engineSelect.disabled = false;
+    modelStateChanged();
+  }
 });
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
@@ -485,4 +497,6 @@ if (installButton && /Safari/.test(navigator.userAgent) && !/Chrome|Chromium/.te
 
 const applicationScript = document.createElement("script");
 applicationScript.src = new URL("./app.js", import.meta.url).href;
+const buildVersion = new URL(import.meta.url).searchParams.get("v");
+if (buildVersion) applicationScript.src += `?v=${encodeURIComponent(buildVersion)}`;
 document.head.append(applicationScript);
