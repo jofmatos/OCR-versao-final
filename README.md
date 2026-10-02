@@ -4,6 +4,25 @@ Leitor de PDF e conversor para **DOCX editável** ou **TXT**, com OCR em portugu
 
 ## Versão que processa no seu próprio navegador
 
+### Apple Vision: outro extrator para macOS
+
+No menu **Motor de leitura**, escolha **Apple Vision · OCR nativo do Mac**. Baixe o **Lume OCR Mac**, extraia o ZIP e abra o aplicativo. Ele aparece na barra de menus e usa o reconhecimento de texto do macOS, com nível de precisão alto e sem correção de palavras por dicionário. Não usa um modelo generativo nem precisa de Python, Terminal ou um download separado de pesos de OCR. Requer macOS 13 ou posterior; o aplicativo é universal, para Intel e Apple Silicon.
+
+Volte ao site e clique em **Conectar ao Mac**. No Chrome, permita acesso à rede local quando solicitado. As imagens de cada página seguem apenas para `127.0.0.1:17861`; o texto volta ao navegador, onde permanecem a edição, o salvamento, DOCX e TXT. O auxiliar não grava PDFs ou imagens em disco nem envia documentos à nuvem. Deixe-o aberto durante a extração; para fechar, use **Lume OCR → Encerrar OCR local** na barra de menus. A primeira abertura pode exigir **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**, pois a compilação tem assinatura ad hoc e ainda não possui notarização da Apple.
+
+O workflow compila o aplicativo em um runner macOS, testa OCR real em uma imagem com português e números e exercita CORS, a API local, entradas inválidas e origens recusadas. Apenas depois desse teste o ZIP é incorporado ao site. Os testes de navegador executados em Linux verificam o protocolo com respostas controladas; não validam o reconhecimento do Apple Vision. A qualidade em documentos reais do usuário ainda precisa ser comparada.
+
+Para compilar e verificar no Mac com as ferramentas de desenvolvimento instaladas:
+
+```bash
+bash scripts/build-mac-vision.sh
+python3 scripts/smoke_mac_vision.py --executable ".cache/mac-build/Lume OCR Mac.app/Contents/MacOS/LumeOCRMac"
+```
+
+O código do auxiliar está em `native/mac-vision/main.swift`. A API escuta somente no loopback e aceita como origem do navegador `https://jofmatos.github.io` e os endereços locais de desenvolvimento declarados no código. Não troque o domínio de publicação sem ajustar essa lista.
+
+### Motores que rodam inteiramente no navegador
+
 A versão estática funciona em um site HTTPS, inclusive no GitHub Pages. **Seu computador executa o PDF e o OCR: nenhum PDF ou texto é enviado ao servidor.** Ela usa PDF.js, Tesseract.js/WebAssembly e os modelos oficiais `best_int`, da família best, quantizados para esse motor. Os modelos de ponto flutuante da versão Python não são compatíveis com a compilação WebAssembly utilizada. Não exige Python, Homebrew, chave de API nem um servidor de processamento no computador do usuário.
 
 O botão **Instalar OCR avançado** prepara **PaddleOCR v5 mobile com reconhecimento latino**, para português, inglês e espanhol. Baixa cerca de 13 MB de modelos, além de aproximadamente 35 MB do motor, verifica SHA-256 e guarda os arquivos no navegador. Depois de concluir, o motor avançado é selecionado automaticamente e lembrado nas próximas aberturas. O menu **Motor de leitura** permite voltar ao Tesseract. Se o download falhar, o motor atual continua disponível; não há troca silenciosa durante uma conversão.

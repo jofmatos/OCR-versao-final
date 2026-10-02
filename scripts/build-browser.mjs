@@ -10,6 +10,12 @@ await mkdir(path.join(output, "static"), { recursive: true });
 await mkdir(path.join(output, "vendor/tesseract/core"), { recursive: true });
 await mkdir(path.join(output, "vendor/pdf"), { recursive: true });
 await mkdir(path.join(output, "models"), { recursive: true });
+let macHelperAvailable = false;
+try {
+  await mkdir(path.join(output, "downloads"), { recursive: true });
+  await cp(".cache/mac-build/Lume-OCR-Mac.zip", path.join(output, "downloads/Lume-OCR-Mac.zip"));
+  macHelperAvailable = true;
+} catch (error) { if (error.code !== "ENOENT") throw error; }
 
 for (const name of ["app.js", "styles.css", "favicon.svg"]) await cp(`app/static/${name}`, path.join(output, "static", name));
 await build({ entryPoints: ["browser/client.js"], outfile: path.join(output, "static/browser.js"), bundle: true, minify: true, format: "esm", platform: "browser", target: ["es2022"], legalComments: "linked" });
@@ -32,6 +38,10 @@ html = html.replaceAll("Processamento no seu servidor", "Processamento no seu co
 html = html.replace("Processado neste servidor. Exclusão automática em 24 h, ou quando você quiser.", "Seu PDF fica neste navegador. Você pode removê-lo quando terminar.");
 html = html.replace('  <meta name="theme-color"', '  <link rel="manifest" href="./manifest.webmanifest">\n  <meta name="theme-color"');
 html = html.replace('      <section id="emptyState"', `      <section class="local-model-panel" aria-label="OCR no dispositivo"><div><strong>Instale um motor de OCR neste navegador</strong><p id="modelStatus" role="status" aria-live="polite">PaddleOCR v5 para português, inglês e espanhol. O primeiro uso baixa cerca de 13 MB de modelos, além do motor. Seus PDFs ficam neste computador.</p><label for="ocrEngine">Motor de leitura</label><select id="ocrEngine"><option value="paddle">PaddleOCR · avançado (experimental)</option><option value="tesseract" selected>Tesseract · básico</option></select></div><div class="local-actions"><button class="button primary small" id="installAdvanced">Instalar OCR avançado</button><button class="button secondary small" id="prepareModels">Preparar OCR básico</button><button class="button dark small" id="installApp" hidden>Usar como aplicativo</button></div></section>\n      <section id="emptyState"`);
+html = html.replace("Instale um motor de OCR neste navegador", "Escolha um motor de OCR");
+html = html.replace("PaddleOCR v5 para português, inglês e espanhol. O primeiro uso baixa cerca de 13 MB de modelos, além do motor. Seus PDFs ficam neste computador.", "Tesseract e PaddleOCR rodam no navegador. Apple Vision usa o OCR nativo do Mac. Seus documentos ficam neste computador.");
+html = html.replace('<option value="paddle">', '<option value="vision">Apple Vision · OCR nativo do Mac</option><option value="paddle">');
+html = html.replace('      <section id="emptyState"', `      <section id="macVisionPanel" class="local-model-panel mac-vision-panel" aria-label="Preparar Apple Vision" hidden><div><strong>Apple Vision no seu Mac</strong><p>Um aplicativo auxiliar conecta este site ao OCR do macOS 13 ou posterior, em Macs Intel ou Apple Silicon. Não precisa baixar um modelo de IA.</p><ol><li>Baixe e abra o aplicativo <b>Lume OCR Mac</b>.</li><li>Se o macOS bloquear a primeira abertura, autorize o app em <b>Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim</b>. O aplicativo ainda não tem notarização da Apple.</li><li>Deixe o app aberto e clique em <b>Conectar ao Mac</b>. No Chrome, permita o acesso à rede local se solicitado.</li></ol><p>As imagens das páginas são enviadas somente ao aplicativo neste Mac. O texto volta para edição e download no site.</p></div><div class="local-actions">${macHelperAvailable ? '<a id="downloadMacVision" class="button secondary small" href="./downloads/Lume-OCR-Mac.zip" download>Baixar Lume OCR Mac</a>' : '<span class="field-help">Download do app disponível após a compilação e publicação no Mac.</span>'}<button id="connectMacVision" class="button primary small">Conectar ao Mac</button></div></section>\n      <section id="emptyState"`);
 html = html.replace("O resultado pode precisar de revisão, especialmente em manuscritos e tabelas.", "Deixe esta página aberta durante a extração. Revise manuscritos, números e tabelas.");
 await writeFile(path.join(output, ".nojekyll"), "");
 await mkdir(path.join(output, "icons"), { recursive: true });

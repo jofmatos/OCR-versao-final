@@ -16,3 +16,5 @@
 .nav-mark svg{display:block;width:12px;height:12px;transform:rotate(-45deg);color:#879e9f}
 
 .local-model-panel label{display:block;font-size:12px;margin:10px 0 5px}.local-model-panel select{max-width:100%;padding:8px 12px;border:1px solid #ccd6cf;border-radius:8px;background:white;color:#17272f}.local-actions{flex-wrap:wrap}.local-model-panel>div:first-child{min-width:0}
+
+.mac-vision-panel ol{padding-left:20px;max-width:680px;font-size:12px;line-height:1.6;color:#52675e}.mac-vision-panel li{margin:6px 0}.mac-vision-panel[hidden]{display:none}.mac-vision-panel .local-actions{flex-direction:column;align-items:stretch;min-width:180px}

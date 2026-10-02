@@ -2,6 +2,7 @@ import * as pdfjs from "pdfjs-dist/build/pdf.mjs";
 import { createWorker, OEM, PSM } from "tesseract.js";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import { PaddleClient } from "./paddle-client.js";
+import { MacVision } from "./mac-vision.js";
 
 const asset = (path) => new URL(`../${path}`, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset("vendor/pdf/pdf.worker.min.mjs");
@@ -168,7 +169,9 @@ class BrowserClient {
   workerPromise = null;
   paddle = null;
   paddlePromise = null;
-  engine = (() => { try { return localStorage.getItem("lume-ocr-engine") === "paddle" ? "paddle" : "tesseract"; } catch { return "tesseract"; } })();
+  vision = null;
+  visionPromise = null;
+  engine = (() => { try { const saved = localStorage.getItem("lume-ocr-engine"); return ["paddle", "vision"].includes(saved) ? saved : "tesseract"; } catch { return "tesseract"; } })();
   previews = new Map();
   generation = 0;
 
@@ -268,6 +271,23 @@ class BrowserClient {
     try { localStorage.setItem("lume-ocr-engine", "paddle"); } catch { /* Model remains ready in this session. */ }
   }
 
+  async ensureVision(recheck = false) {
+    if (this.visionPromise) return this.visionPromise;
+    if (this.vision && !recheck) return this.vision;
+    this.vision?.terminate(); this.vision = null;
+    const vision = new MacVision();
+    modelStatus("Conectando ao Apple Vision neste Mac…");
+    this.visionPromise = (async () => {
+      try {
+        await vision.connect(); this.vision = vision;
+        modelStatus("Apple Vision conectado. O OCR será feito no seu Mac.");
+        return vision;
+      } finally { this.visionPromise = null; modelStateChanged(); }
+    })();
+    modelStateChanged();
+    return this.visionPromise;
+  }
+
   async preview(id, number) {
     const record = await this.recordFor(id);
     if (number < 1 || number > record.doc.page_count) throw failure("Página não encontrada.", 404);
@@ -305,11 +325,13 @@ class BrowserClient {
         }
         if (options.mode === "ocr" || scanned) {
           const advanced = options.engine === "paddle";
-          const worker = advanced ? await this.ensurePaddle() : await this.ensureWorker(options.language);
+          const mac = options.engine === "vision";
+          const worker = mac ? await this.ensureVision() : advanced ? await this.ensurePaddle() : await this.ensureWorker(options.language);
           if (!stillActive()) return;
           const canvas = await renderPage(this.pdf, number, { quality: options.quality });
           try {
-            const result = advanced ? await worker.recognize(canvas, options.quality) :
+            if (mac) modelStatus("Reconhecendo texto com Apple Vision no seu Mac…");
+            const result = mac ? await worker.recognize(canvas, options.language) : advanced ? await worker.recognize(canvas, options.quality) :
               (await worker.recognize(canvas, { rotateAuto: true }, { text: true, blocks: false })).data;
             text = result.text.trim();
             confidence = Number.isFinite(result.confidence) ? Math.round(result.confidence * 10) / 10 : null;
@@ -330,9 +352,10 @@ class BrowserClient {
       record.doc.status = "ready";
       record.updated_at = Date.now();
       await this.persist(record);
-      modelStatus(this.paddle ? "PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline." : this.worker ? "OCR básico pronto neste dispositivo. Modelos guardados no navegador." : "Texto lido diretamente do PDF, no seu computador.");
+      modelStatus(!record.doc.pages.some((page) => page.method === "ocr") ? "Texto lido diretamente do PDF, no seu computador." : options.engine === "vision" ? "Extração concluída com Apple Vision no seu Mac." : this.paddle ? "PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline." : "OCR básico pronto neste dispositivo. Modelos guardados no navegador.");
     } catch (error) {
       if (!stillActive()) return;
+      if (options.engine === "vision") { this.vision?.terminate(); this.vision = null; }
       record.doc.status = "error";
       record.doc.error = error.message || "Não foi possível processar este PDF. Tente a qualidade padrão ou menos páginas.";
       try { await this.persist(record); } catch { /* Retain the error in memory. */ }
@@ -393,6 +416,7 @@ class BrowserClient {
       this.pdf = null;
       if (this.worker) { await this.worker.terminate(); this.worker = null; this.workerLanguage = null; }
       if (this.paddle) { this.paddle.terminate(); this.paddle = null; }
+      if (this.vision) { this.vision.terminate(); this.vision = null; }
       if (pdf) await pdf.loadingTask.destroy().catch(() => {});
       for (const url of this.previews.values()) URL.revokeObjectURL(url);
       this.previews.clear();
@@ -443,11 +467,26 @@ prepare?.addEventListener("click", async () => {
 
 const advancedButton = document.getElementById("installAdvanced");
 const engineSelect = document.getElementById("ocrEngine");
+const visionPanel = document.getElementById("macVisionPanel");
+const visionButton = document.getElementById("connectMacVision");
 if (engineSelect) engineSelect.value = window.LumeBrowser.engine;
+if (visionPanel) visionPanel.hidden = window.LumeBrowser.engine !== "vision";
 engineSelect?.addEventListener("change", () => {
   window.LumeBrowser.engine = engineSelect.value;
   try { localStorage.setItem("lume-ocr-engine", engineSelect.value); } catch { /* Keep the selection in memory. */ }
-  modelStatus(engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
+  if (visionPanel) visionPanel.hidden = engineSelect.value !== "vision";
+  modelStatus(engineSelect.value === "vision" ? "Apple Vision selecionado. Abra o aplicativo auxiliar no Mac e clique em Conectar." : engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
+});
+visionButton?.addEventListener("click", async () => {
+  visionButton.disabled = true;
+  visionButton.textContent = "Conectando…";
+  try {
+    await window.LumeBrowser.ensureVision(true);
+    window.LumeBrowser.engine = "vision"; engineSelect.value = "vision";
+    try { localStorage.setItem("lume-ocr-engine", "vision"); } catch { /* Retain this session's selection. */ }
+    visionButton.textContent = "Apple Vision conectado";
+  } catch (error) { modelStatus(error.message); visionButton.textContent = "Tentar conectar ao Mac"; }
+  finally { visionButton.disabled = false; modelStateChanged(); }
 });
 advancedButton?.addEventListener("click", async () => {
   advancedButton.disabled = true;
@@ -458,6 +497,7 @@ advancedButton?.addEventListener("click", async () => {
   try {
     await window.LumeBrowser.installAdvanced();
     engineSelect.value = "paddle";
+    if (visionPanel) visionPanel.hidden = true;
     modelStatus("PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline.");
     advancedButton.textContent = "OCR avançado instalado";
     installed = true;

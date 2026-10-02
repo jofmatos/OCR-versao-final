@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 from io import BytesIO
 from pathlib import Path
+import base64
+import json
 import shutil
 from tempfile import TemporaryDirectory
 
@@ -139,6 +141,53 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
         expect(page.locator("#confidence")).to_contain_text("Confiança OCR:")
         page.screenshot(path=str(artifacts / "ocr.png"), full_page=True)
         if browser_mode:
+            # Exercise the native extractor protocol without pretending this
+            # Linux browser can execute Apple's Vision framework.
+            page.locator("#ocrEngine").select_option("vision")
+            expect(page.locator("#macVisionPanel")).to_be_visible()
+            context.route("http://127.0.0.1:17861/**", lambda route: route.abort())
+            page.locator("#connectMacVision").click()
+            expect(page.locator("#modelStatus")).to_contain_text("Abra o aplicativo Lume OCR Mac")
+            expect(page.locator("#connectMacVision")).to_be_enabled()
+            context.unroute("http://127.0.0.1:17861/**")
+            vision_calls = []
+            def native_response(route):
+                request = route.request
+                headers = {"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"}
+                if request.url.endswith("/health"):
+                    route.fulfill(body=json.dumps({"engine": "apple-vision", "version": 1}), headers=headers)
+                elif request.method == "OPTIONS":
+                    route.fulfill(status=204, headers={**headers, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Private-Network": "true"})
+                else:
+                    payload = request.post_data_json
+                    assert set(payload) == {"image", "language"}
+                    assert base64.b64decode(payload["image"]).startswith(b"\x89PNG\r\n\x1a\n")
+                    assert payload["language"] == "por+eng"
+                    vision_calls.append(payload)
+                    route.fulfill(body=json.dumps({"text": "Apple Vision: português, acentuação e 12345.", "confidence": 97, "engine": "apple-vision"}), headers=headers)
+            context.route("http://127.0.0.1:17861/**", native_response)
+            page.locator("#connectMacVision").click()
+            expect(page.locator("#modelStatus")).to_contain_text("Apple Vision conectado")
+            page.locator("#convertButton").click()
+            page.locator("#confirmAction").click()
+            expect(page.locator("#exportDocx")).to_be_enabled(timeout=30000)
+            expect(page.locator("#pageText")).to_have_value("Apple Vision: português, acentuação e 12345.")
+            assert len(vision_calls) == 1
+            for kind, button in [("txt", "#exportTxt"), ("docx", "#exportDocx")]:
+                with page.expect_download() as pending:
+                    page.locator(button).click()
+                output = artifacts / f"vision-protocol.{kind}"
+                pending.value.save_as(str(output))
+                exported = output.read_text("utf-8") if kind == "txt" else "\n".join(p.text for p in Document(output).paragraphs)
+                assert "Apple Vision: português, acentuação e 12345." in exported
+            page.reload(wait_until="networkidle")
+            expect(page.locator("#ocrEngine")).to_have_value("vision")
+            expect(page.locator("#macVisionPanel")).to_be_visible()
+            expect(page.locator("#pageText")).to_have_value("Apple Vision: português, acentuação e 12345.")
+            context.unroute("http://127.0.0.1:17861/**")
+            page.locator("#ocrEngine").select_option("tesseract")
+            expect(page.locator("#macVisionPanel")).to_be_hidden()
+            print("Mac Vision browser protocol OK: missing helper, local PNG transfer, selected engine, editing/export and reload. Native OCR is tested separately on macOS.")
             page.evaluate("navigator.serviceWorker.ready.then(() => true)")
             page.wait_for_function("navigator.serviceWorker.controller !== null")
             context.set_offline(True)
@@ -150,7 +199,7 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             expect(page.locator("#exportDocx")).to_be_enabled(timeout=120000)
             assert "português" in page.locator("#pageText").input_value()
             context.set_offline(False)
-            assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document content sent over network"
+            assert not any(method != "GET" for method, url in network if url.startswith("http") and not url.startswith("http://127.0.0.1:17861/")), "Document content sent outside local native helper"
             assert not any("/api/" in url for method, url in network), "Static version tried a backend API"
             print("Offline OCR OK: cached models reused; no PDF upload or backend API.")
         page.locator("#removeFile").click()
