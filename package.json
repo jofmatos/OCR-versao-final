@@ -1,0 +1,24 @@
+{
+  "name": "lume-ocr",
+  "version": "1.1.0",
+  "private": true,
+  "description": "PDF, OCR e DOCX/TXT processados no próprio navegador",
+  "scripts": {
+    "build": "node scripts/build-browser.mjs",
+    "serve": "python3 -m http.server 8080 --bind 127.0.0.1 --directory docs"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/por": "1.0.0",
+    "@tesseract.js-data/spa": "1.0.0",
+    "docx": "9.8.1",
+    "pdfjs-dist": "6.3.289",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

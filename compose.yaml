@@ -1,0 +1,15 @@
+services:
+  lume:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - lume-data:/app/data
+    environment:
+      LUME_RETENTION_HOURS: "24"
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 150s
+
+volumes:
+  lume-data:

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15232b">
+  <meta name="description" content="Leia PDFs, reconheça texto com OCR e transforme seus documentos em DOCX ou TXT editáveis.">
+  <title>Lume OCR — Dê vida ao texto.</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Ir para o conteúdo</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-document" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3M2 12h20M8 8h8M8 16h8"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 5h16M12 5v15M8 20h8M4 5v3m16-3v3"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  </svg>
+
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Lume OCR, início"><span class="brand-icon"><svg><use href="#i-scan"/></svg></span><span>lume<span class="brand-dot">.</span><small>ESTÚDIO OCR</small></span></a>
+    <div class="sidebar-section">SEU ESPAÇO DE TRABALHO</div>
+    <a href="#main" class="nav-item active" aria-current="page"><svg><use href="#i-document"/></svg><span>Converter documento</span><span class="nav-mark"><svg aria-hidden="true"><use href="#i-arrow"/></svg></span></a>
+    <div class="sidebar-note"><span class="note-symbol">Aa</span><p>O conhecimento merece<br>estar acessível.</p><span>Do papel para novas possibilidades.</span></div>
+    <div class="sidebar-footer"><span class="status-dot" id="connectionDot"></span><span id="connectionLabel">Conectando ao serviço</span><small>FEITO PARA LER ALÉM.</small></div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="topbar"><span class="breadcrumb">Ferramentas <span>/</span> <strong>PDF para texto</strong></span><span class="topbar-tag"><svg><use href="#i-shield"/></svg>Processamento no seu servidor</span></header>
+    <main id="main">
+      <div class="page-heading"><div><p class="eyebrow">MENOS DIGITAÇÃO. MAIS POSSIBILIDADES.</p><h1>Dê vida ao texto<span>.</span></h1><p class="intro">Transforme PDFs e páginas digitalizadas em documentos editáveis.</p></div><span class="heading-label"><svg><use href="#i-scan"/></svg>LEITURA + OCR</span></div>
+
+      <div id="alert" class="alert" role="alert" hidden><svg><use href="#i-info"/></svg><span id="alertText"></span><button id="dismissAlert" class="icon-button" aria-label="Fechar aviso"><svg><use href="#i-close"/></svg></button></div>
+
+      <section id="emptyState" aria-labelledby="uploadTitle">
+        <div class="studio-grid">
+          <div class="upload-card">
+            <div class="card-heading"><span class="step-number">01</span><div><h2 id="uploadTitle">Tudo começa com seu PDF</h2><p>Um documento, muitas possibilidades.</p></div><span class="file-format">PDF</span></div>
+            <div class="dropzone" id="dropzone">
+              <div class="document-art" aria-hidden="true"><span class="art-sheet sheet-back"></span><span class="art-sheet sheet-front"><span class="art-pdf">PDF</span><span class="art-line"></span><span class="art-line"></span><span class="art-line short"></span><span class="art-scan"></span></span><span class="art-badge"><svg><use href="#i-upload"/></svg></span></div>
+              <h3>Arraste seu PDF até aqui</h3><p>ou escolha um arquivo no seu dispositivo</p>
+              <button class="button primary" id="chooseFile"><svg><use href="#i-plus"/></svg>Selecionar documento</button>
+              <p class="upload-limit" id="uploadLimit">Arquivos PDF · Até 50 MB · 200 páginas</p>
+            </div>
+            <div class="upload-footnote"><svg><use href="#i-shield"/></svg><span>Processado neste servidor. Exclusão automática em 24 h, ou quando você quiser.</span></div>
+          </div>
+          <aside class="guide-card" aria-labelledby="guideTitle"><p class="eyebrow">SIMPLES, DO INÍCIO AO FIM</p><h2 id="guideTitle">Seu conteúdo.<br>Sem barreiras.</h2><ol class="workflow"><li><span>1</span><div><h3>Envie seu documento</h3><p>PDF digital ou escaneado.<br>A gente cuida da leitura.</p></div></li><li><span>2</span><div><h3>Extraia e revise o texto</h3><p>OCR com escolha de idioma<br>e edição página por página.</p></div></li><li><span>3</span><div><h3>Leve para onde quiser</h3><p>Baixe em Word ou texto simples.<br>Pronto para o próximo passo.</p></div></li></ol><div class="guide-formats"><span>.docx</span><svg><use href="#i-arrow"/></svg><span>.txt</span><span class="format-caption">Texto que você pode usar.</span></div></aside>
+        </div>
+        <div class="feature-grid"><article><span class="feature-icon"><svg><use href="#i-scan"/></svg></span><div><h3>Um novo olhar para o papel</h3><p>Reconheça texto em digitalizações e transforme imagens em palavras.</p></div></article><article><span class="feature-icon"><svg><use href="#i-text"/></svg></span><div><h3>Edite antes de exportar</h3><p>Compare com o original e ajuste a transcrição no próprio navegador.</p></div></article><article><span class="feature-icon"><svg><use href="#i-document"/></svg></span><div><h3>Do seu jeito, no seu formato</h3><p>Continue trabalhando em DOCX ou guarde uma versão leve em TXT.</p></div></article></div>
+      </section>
+
+      <section id="workspace" aria-label="Documento e conversão" hidden>
+        <div class="document-bar"><div class="document-symbol"><svg><use href="#i-document"/></svg></div><div class="document-info"><h2 id="documentName"></h2><p id="documentMeta"></p></div><span id="documentStatus" class="badge">Pronto para converter</span><button id="removeFile" class="button quiet"><svg><use href="#i-close"/></svg><span>Remover</span></button></div>
+        <div class="conversion-panel"><form id="convertForm"><div class="settings-heading"><svg><use href="#i-scan"/></svg><h2>Prepare sua conversão</h2></div><div class="settings-grid"><div class="field"><label for="mode">Método de leitura</label><select id="mode"><option value="auto">Automático (recomendado)</option><option value="ocr">OCR em todas as páginas</option></select><span class="field-help">O automático usa OCR quando necessário.</span></div><div class="field"><label for="language">Idioma do documento</label><select id="language"><option value="por+eng">Português + inglês</option></select><span class="field-help">Ajuda a reconhecer acentos e palavras.</span></div><div class="field"><label for="quality">Qualidade do OCR</label><select id="quality"><option value="high">Alta · leitura mais detalhada</option><option value="standard">Padrão · mais rápido</option></select></div><div class="field"><label for="pageRange">Páginas <span class="optional">opcional</span></label><input id="pageRange" placeholder="Todas, ou ex.: 1-3, 5" autocomplete="off" inputmode="text"><span class="field-help">Deixe em branco para ler tudo.</span></div></div><div class="conversion-bottom"><p><svg><use href="#i-info"/></svg><span id="conversionHint">O resultado pode precisar de revisão, especialmente em manuscritos e tabelas.</span></p><button id="convertButton" class="button primary" type="submit"><svg><use href="#i-spark"/></svg><span>Extrair texto</span><svg><use href="#i-arrow"/></svg></button></div></form></div>
+        <div id="progressPanel" class="progress-panel" role="status" aria-live="polite" hidden><div class="progress-header"><span class="spinner"></span><strong id="progressTitle">Lendo seu documento…</strong><span id="progressCount"></span></div><div class="progress-track" role="progressbar" aria-label="Progresso da extração" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressFill"></div></div><p>Você pode acompanhar o original enquanto o texto é extraído.</p></div>
+        <div class="editor-topline"><div class="page-navigation"><button id="previousPage" class="icon-button" aria-label="Página anterior"><svg class="rotate"><use href="#i-chevron"/></svg></button><label for="pageSelect" class="sr-only">Página exibida</label><select id="pageSelect"></select><span id="pageTotal"></span><button id="nextPage" class="icon-button" aria-label="Próxima página"><svg><use href="#i-chevron"/></svg></button></div><div class="export-actions"><span id="saveStatus" role="status" aria-live="polite"></span><button id="saveText" class="button small quiet" disabled>Salvar alterações</button><button class="button small secondary" id="exportTxt" disabled><svg><use href="#i-download"/></svg>TXT</button><button class="button small dark" id="exportDocx" disabled><svg><use href="#i-download"/></svg>Baixar DOCX</button></div></div>
+        <div class="editor-grid"><section class="preview-panel" aria-labelledby="previewTitle"><div class="panel-toolbar"><h3 id="previewTitle">Documento original</h3><div class="zoom-controls"><button id="zoomOut" class="icon-button" aria-label="Diminuir zoom"><svg><use href="#i-minus"/></svg></button><span id="zoomValue">100%</span><button id="zoomIn" class="icon-button" aria-label="Aumentar zoom"><svg><use href="#i-plus"/></svg></button></div></div><div class="preview-canvas" id="previewCanvas"><div id="previewLoading" class="preview-loading"><span class="spinner"></span><p>Carregando página…</p></div><img id="pagePreview" alt="" hidden><p id="previewError" class="preview-error" hidden>Não foi possível exibir esta página.</p></div></section><section class="text-panel" aria-labelledby="textTitle"><div class="panel-toolbar"><h3 id="textTitle">Texto editável</h3><div class="text-tools"><span id="pageMethod" class="badge" hidden></span><button id="copyText" class="icon-button" aria-label="Copiar texto desta página" disabled><svg><use href="#i-copy"/></svg></button></div></div><div id="textPlaceholder" class="text-placeholder"><span><svg><use href="#i-text"/></svg></span><h3>As palavras aparecem aqui</h3><p>Extraia o texto para revisar e editar<br>o conteúdo desta página.</p></div><label for="pageText" class="sr-only">Transcrição editável da página</label><textarea id="pageText" spellcheck="true" lang="pt-BR" hidden></textarea><div id="pageWarnings" class="page-warnings" hidden></div><div class="text-footer"><span id="textStats">Aguardando extração</span><span id="confidence"></span></div></section></div>
+      </section>
+
+      <footer class="page-footer"><span>lume<span class="footer-dot">.</span> <span class="footer-description">Clareza para suas ideias.</span></span><span>PDF → texto → possibilidades</span></footer>
+    </main>
+  </div>
+  <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="confirmDialog"><form method="dialog"><div class="dialog-icon"><svg><use href="#i-info"/></svg></div><h2 id="confirmTitle">Continuar?</h2><p id="confirmMessage"></p><div class="dialog-actions"><button class="button secondary" value="cancel">Voltar</button><button class="button primary" value="confirm" id="confirmAction">Continuar</button></div></form></dialog>
+</body>
+</html>
