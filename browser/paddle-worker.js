@@ -1,4 +1,5 @@
 import { PaddleOCR } from "@paddleocr/paddleocr-js";
+import { parsePaddleDictionary } from "./paddle-dictionary.js";
 
 // Converted PaddleOCR v5 weights, pinned to the model distributor's Git commit
 // and Git LFS SHA-256. Only public model assets ever leave this worker.
@@ -92,7 +93,7 @@ async function initialize() {
       { DetResizeForTest: { resize_long: 960, limit_type: "max", max_side_limit: 4000 } },
       { NormalizeImage: { mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] } },
     ] }, PostProcess: { thresh: 0.3, box_thresh: 0.6, unclip_ratio: 1.5 } }),
-    recognizer: archive(rec, { model_name: "latin_PP-OCRv5_mobile_rec", PreProcess: { transform_ops: [{ RecResizeImg: { image_shape: [3, 48, 320] } }] }, PostProcess: { character_dict: new TextDecoder().decode(dictionary).replace(/\r/g, "").replace(/\n$/, "").split("\n") } }),
+    recognizer: archive(rec, { model_name: "latin_PP-OCRv5_mobile_rec", PreProcess: { transform_ops: [{ RecResizeImg: { image_shape: [3, 48, 320] } }] }, PostProcess: { character_dict: parsePaddleDictionary(dictionary) } }),
   };
   notify("Iniciando PaddleOCR neste dispositivo…");
   engine = await PaddleOCR.create({
