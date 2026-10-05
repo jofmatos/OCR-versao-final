@@ -53,6 +53,9 @@ async function initialize() {
     progress("Preparando o modelo na GPU… Isso pode levar alguns minutos no primeiro uso.");
     model = await runtime.AutoModelForImageTextToText.from_pretrained(manifest.model, {
       ...options, dtype: "q4",
+      // GLM's export omits q4 entries from its external-data configuration.
+      // Each component in the verified manifest has one external weight file.
+      use_external_data_format: true,
       device: "webgpu",
       session_options: { enableCpuMemArena: false, enableMemPattern: false },
     });

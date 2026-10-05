@@ -12,7 +12,7 @@ export function validateManifest(manifest) {
     throw new Error("O tamanho do modelo não é compatível com esta versão do site.");
   }
   const sizes = manifest.sizes;
-  if (!sizes || typeof sizes !== "object" || ["embed_tokens", "vision_encoder", "decoder_model_merged"].some((name) => !sizes[`onnx/${name}_q4.onnx`]) ||
+  if (!sizes || typeof sizes !== "object" || ["embed_tokens", "vision_encoder", "decoder_model_merged"].some((name) => !sizes[`onnx/${name}_q4.onnx`] || !sizes[`onnx/${name}_q4.onnx_data`]) ||
       Object.values(sizes).some((size) => !Number.isSafeInteger(size) || size <= 0) || Object.values(sizes).reduce((a, b) => a + b, 0) !== manifest.bytes) {
     throw new Error("A lista de arquivos do modelo está incompleta. Atualize a página e tente novamente.");
   }

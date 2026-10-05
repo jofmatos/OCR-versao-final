@@ -14,7 +14,7 @@ O pipeline confirma a disponibilidade das exportações completas antes de testa
 ## Implementação e validação
 
 - O build publicado fixa a revisão exata da exportação ONNX pública selecionada e informa o tamanho dos arquivos usados.
-- Visão e decodificação usam WebGPU. O lookup de embeddings usa WASM para evitar buffers de vocabulário maiores que os limites da GPU.
+- Visão, embeddings quantizados e decodificação usam WebGPU. O operador de embeddings q4 exige o backend de GPU nesta exportação.
 - Download e inferência ficam em um worker separado. Há progresso, cancelamento, erros de GPU/armazenamento e possibilidade de selecionar os motores anteriores.
 - Não há uma segunda IA reescrevendo o OCR. A geração usa `do_sample: false`, limite de tokens e interrupção por repetição, com aviso quando o texto puder estar incompleto.
 - Testes de protocolo exercitam a interface e a exportação com respostas controladas. O teste separado `scripts/smoke_neural_browser.py` usa os pesos reais e verifica português, números, TXT, ausência de envio de documentos e inicialização offline. A publicação depende de sua aprovação.

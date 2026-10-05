@@ -8,13 +8,14 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 from urllib.parse import urlsplit
 
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import TimeoutError as BrowserTimeout, expect, sync_playwright
 
 EXPECTED = [
     "Uma transcrição deve preservar acentuação.",
@@ -27,6 +28,33 @@ def normalized(text):
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+def notice(stage, message):
+    print(f"{stage}: {message}", flush=True)
+    if os.environ.get("GITHUB_ACTIONS"):
+        escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::notice title={stage}::{escaped[:1500]}", flush=True)
+
+
+def wait_condition(page, predicate, timeout, stage, artifacts):
+    deadline = time.monotonic() + timeout / 1000
+    last_status = None
+    while True:
+        remaining = max(1, int((deadline - time.monotonic()) * 1000))
+        try:
+            page.wait_for_function(predicate, timeout=min(60000, remaining))
+            notice(stage, page.locator("#modelStatus").inner_text())
+            return
+        except BrowserTimeout:
+            status = page.locator("#modelStatus").inner_text()
+            if time.monotonic() >= deadline:
+                message = f"{stage} exceeded {timeout / 1000:.0f}s. Last browser status: {status}"
+                (artifacts / "model-error.txt").write_text(message)
+                raise RuntimeError(message)
+            if status != last_status:
+                notice(stage, status)
+                last_status = status
+
+
 def run(artifacts: Path, baseline=False):
     artifacts.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="lume-neural-") as temp:
@@ -34,21 +62,20 @@ def run(artifacts: Path, baseline=False):
         prefix = directory / "site"
         prefix.mkdir()
         (prefix / "OCR-versao-final").symlink_to(Path("docs").resolve(), target_is_directory=True)
-        image = Image.new("RGB", (1000, 420), "white")
+        image = Image.new("RGB", (1000, 260), "white")
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
         for index, text in enumerate(EXPECTED):
-            draw.text((48, 75 + index * 90), text, fill="black", font=font)
+            draw.text((48, 24 + index * 74), text, fill="black", font=font)
         png = BytesIO()
         image.save(png, "PNG")
         scan = directory / "Português.pdf"
         with pymupdf.open() as pdf:
-            page = pdf.new_page(width=1000, height=420)
+            page = pdf.new_page(width=1000, height=260)
             page.insert_image(page.rect, stream=png.getvalue())
             pdf.save(scan)
         server = subprocess.Popen(["python3", "-m", "http.server", "8082", "--bind", "127.0.0.1", "--directory", str(prefix)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            import time
             base = "http://127.0.0.1:8082/OCR-versao-final/"
             for attempt in range(100):
                 try:
@@ -80,20 +107,22 @@ def run(artifacts: Path, baseline=False):
                 page.locator("#ocrEngine").select_option("neural")
                 label = page.locator("#neuralPanel").get_attribute("data-model-label")
                 page.locator("#installNeural").click()
-                page.wait_for_function("!window.LumeBrowser.neuralPromise && !document.getElementById('installNeural').disabled", timeout=900000)
+                wait_condition(page, "!window.LumeBrowser.neuralPromise && !document.getElementById('installNeural').disabled", 900000, f"{label} loading", artifacts)
                 if page.locator("#installNeural").inner_text() != f"{label} preparado":
                     (artifacts / "model-error.txt").write_text(page.locator("#modelStatus").inner_text())
                 assert page.locator("#installNeural").inner_text() == f"{label} preparado", page.locator("#modelStatus").inner_text()
                 page.locator("#fileInput").set_input_files(str(scan))
                 expect(page.locator("#documentName")).to_have_text(scan.name)
+                page.locator("#quality").select_option("standard")
                 page.locator("#convertButton").click()
-                page.wait_for_function("['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", timeout=600000)
+                wait_condition(page, "['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", 600000, f"{label} recognition", artifacts)
                 doc = page.evaluate("window.LumeBrowser.record.doc")
                 if doc["status"] != "ready":
                     (artifacts / "model-error.txt").write_text(doc.get("error") or "OCR failed")
                 assert doc["status"] == "ready", doc.get("error")
                 expect(page.locator("#exportTxt")).to_be_enabled(timeout=10000)
                 text = page.locator("#pageText").input_value()
+                (artifacts / "recognized-text.txt").write_text(text)
                 print("Actual OCR:", text)
                 score = SequenceMatcher(None, normalized(" ".join(EXPECTED)), normalized(text)).ratio()
                 assert score >= .93, f"Portuguese OCR similarity {score:.3f} is below .93: {text!r}"
@@ -113,7 +142,7 @@ def run(artifacts: Path, baseline=False):
                 page.evaluate("window.LumeBrowser.neural.terminate(); window.LumeBrowser.neural = null;")
                 context.set_offline(True)
                 page.locator("#installNeural").click()
-                page.wait_for_function("!window.LumeBrowser.neuralPromise && !document.getElementById('installNeural').disabled", timeout=300000)
+                wait_condition(page, "!window.LumeBrowser.neuralPromise && !document.getElementById('installNeural').disabled", 300000, f"{label} offline reload", artifacts)
                 assert page.locator("#installNeural").inner_text() == f"{label} preparado", page.locator("#modelStatus").inner_text()
                 context.set_offline(False)
                 baselines = {}
@@ -131,7 +160,7 @@ def run(artifacts: Path, baseline=False):
                         else:
                             baselines[engine] = {"error": result.get("error")}
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
-                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
+                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
                 browser.close()
                 print(f"Actual browser OCR passed: Portuguese similarity {score:.3f}, accents, numbers, TXT, WebGPU and offline model reload.")
         finally:
@@ -144,4 +173,11 @@ if __name__ == "__main__":
     parser.add_argument("--artifacts", type=Path, default=Path("test-results/neural"))
     parser.add_argument("--baseline", action="store_true")
     arguments = parser.parse_args()
-    run(arguments.artifacts, arguments.baseline)
+    try:
+        run(arguments.artifacts, arguments.baseline)
+    except Exception as error:
+        target = arguments.artifacts / "model-error.txt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_text(str(error))
+        raise

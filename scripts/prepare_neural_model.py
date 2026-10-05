@@ -26,6 +26,10 @@ def resolve(candidate):
         name = f"onnx/{root}_q4.onnx"
         if name not in assets:
             raise ValueError(f"Missing required model asset: {name}")
+        if name + "_data" not in assets:
+            raise ValueError(f"Missing required external weights: {name}_data")
+        if name + "_data_1" in assets:
+            raise ValueError(f"This runtime expects one external weight file per component: {name}")
         selected.append(name)
         selected.extend(path for path in assets if path.startswith(name + "_data"))
     sizes = {name: assets[name].get("size") or assets[name].get("lfs", {}).get("size", 0) for name in selected}
