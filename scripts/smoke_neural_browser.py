@@ -111,6 +111,7 @@ def run(artifacts: Path, baseline=False):
                 if page.locator("#installNeural").inner_text() != f"{label} preparado":
                     (artifacts / "model-error.txt").write_text(page.locator("#modelStatus").inner_text())
                 assert page.locator("#installNeural").inner_text() == f"{label} preparado", page.locator("#modelStatus").inner_text()
+                model_info = page.evaluate("window.LumeBrowser.neural.request('init')")
                 page.locator("#fileInput").set_input_files(str(scan))
                 expect(page.locator("#documentName")).to_have_text(scan.name)
                 page.locator("#quality").select_option("standard")
@@ -160,7 +161,7 @@ def run(artifacts: Path, baseline=False):
                         else:
                             baselines[engine] = {"error": result.get("error")}
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
-                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
+                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "execution": model_info["execution"], "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
                 browser.close()
                 print(f"Actual browser OCR passed: Portuguese similarity {score:.3f}, accents, numbers, TXT, WebGPU and offline model reload.")
         finally:

@@ -1,12 +1,13 @@
 import { GLM_MODEL_ID, modelName, validateManifest, repeatsTokens, recognitionWarnings } from "./neural-policy.js";
 
 let model, processor, runtime, manifest, initializing;
+const execution = { embed_tokens: "webgpu", vision_encoder: "wasm", decoder_model_merged: "wasm" };
 let name = "OCR de documentos";
 const progress = (message, details = {}) => self.postMessage({ progress: { message, ...details } });
 const local = (path) => new URL(`../${path}`, import.meta.url).href;
 
 async function initialize() {
-  if (model) return { model: name, bytes: manifest.bytes };
+  if (model) return { model: name, bytes: manifest.bytes, execution };
   if (initializing) return initializing;
   initializing = (async () => {
     if (!self.isSecureContext || !navigator.gpu) throw new Error("Este motor precisa de WebGPU. Use uma versão atual do Chrome no Mac, com aceleração gráfica ativada, ou selecione outro motor.");
@@ -56,11 +57,21 @@ async function initialize() {
       // GLM's export omits q4 entries from its external-data configuration.
       // Each component in the verified manifest has one external weight file.
       use_external_data_format: true,
-      device: "webgpu",
+      // Quantized Gather requires WebGPU. The dense vision and decoder graphs
+      // use WASM to avoid large GPU bindings and driver-dependent stalls.
+      device: execution,
       session_options: { enableCpuMemArena: false, enableMemPattern: false },
     });
+    const vision = model.sessions.vision_encoder;
+    const runVision = vision.run.bind(vision);
+    vision.run = async (...args) => {
+      progress(`Analisando a imagem com ${name}…`);
+      const result = await runVision(...args);
+      progress(`Transcrevendo a página com ${name}…`);
+      return result;
+    };
     progress(`${name} pronto. O processamento será feito neste aparelho.`, { loaded: manifest.bytes, total: manifest.bytes, ready: true });
-    return { model: name, bytes: manifest.bytes };
+    return { model: name, bytes: manifest.bytes, execution };
   })();
   try { return await initializing; }
   catch (error) {

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Publish only the best candidate that passes actual browser OCR checks."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -7,35 +8,54 @@ import shutil
 import subprocess
 import sys
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--candidate", choices=["glm", "lighton"])
+parser.add_argument("--select-results", type=Path)
+arguments = parser.parse_args()
 cache = Path(".cache")
+cache.mkdir(exist_ok=True)
 artifacts = Path("test-results/neural")
 artifacts.mkdir(parents=True, exist_ok=True)
 results, passed = [], []
-failures = json.loads((cache / "neural-candidate-errors.json").read_text())
-for candidate, error in failures.items():
-    results.append({"candidate": candidate, "status": "unavailable", "error": error})
-for index, source in enumerate(sorted((cache / "neural-candidates").glob("*.json"))):
-    spec = json.loads(source.read_text())
-    shutil.copyfile(source, cache / "neural-model.json")
-    destination = artifacts / spec["candidate"]
-    print(f"Testing {spec['name']} with actual weights in Chromium/WebGPU", flush=True)
-    try:
-        subprocess.run(["npm", "run", "build"], check=True)
-        command = [sys.executable, "scripts/smoke_neural_browser.py", "--artifacts", str(destination)]
-        if not passed:
-            command.append("--baseline")
-        subprocess.run(command, check=True, timeout=1800)
-        report = json.loads((destination / "report.json").read_text())
-        result = {"candidate": spec["candidate"], "status": "passed", "bytes": spec["bytes"], **report}
-        results.append(result)
+if arguments.select_results:
+    for source in sorted(arguments.select_results.glob("*/comparison.json")):
+        results.extend(json.loads(source.read_text()))
+    for source in sorted(arguments.select_results.glob("*/validated-model.json")):
+        spec = json.loads(source.read_text())
+        report = spec.get("validation", {})
+        if not (report.get("portuguese_similarity", 0) >= .93 and report.get("native_browser_webgpu") is True
+                and report.get("cached_offline_restart") is True and report.get("document_uploads") is False):
+            raise ValueError(f"Artifact lacks successful real browser validation: {source}")
         passed.append((spec, report))
-    except Exception as error:
-        detail = (destination / "model-error.txt").read_text() if (destination / "model-error.txt").exists() else str(error)
-        results.append({"candidate": spec["candidate"], "model": spec["name"], "status": "failed", "error": detail})
-        print(f"Candidate {spec['name']} rejected: {detail}", flush=True)
-        if os.environ.get("GITHUB_ACTIONS"):
-            message = detail[:2000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-            print(f"::warning title={spec['name']} rejected::{message}", flush=True)
+else:
+    failures = json.loads((cache / "neural-candidate-errors.json").read_text())
+    for candidate, error in failures.items():
+        if not arguments.candidate or candidate == arguments.candidate:
+            results.append({"candidate": candidate, "status": "unavailable", "error": error})
+    for source in sorted((cache / "neural-candidates").glob("*.json")):
+        spec = json.loads(source.read_text())
+        if arguments.candidate and spec["candidate"] != arguments.candidate:
+            continue
+        shutil.copyfile(source, cache / "neural-model.json")
+        destination = artifacts / spec["candidate"]
+        print(f"Testing {spec['name']} with actual weights in Chromium/WebGPU + WASM", flush=True)
+        try:
+            subprocess.run(["npm", "run", "build"], check=True)
+            command = [sys.executable, "scripts/smoke_neural_browser.py", "--artifacts", str(destination)]
+            if not passed:
+                command.append("--baseline")
+            subprocess.run(command, check=True, timeout=1800)
+            report = json.loads((destination / "report.json").read_text())
+            result = {"candidate": spec["candidate"], "status": "passed", "bytes": spec["bytes"], **report}
+            results.append(result)
+            passed.append((spec, report))
+        except Exception as error:
+            detail = (destination / "model-error.txt").read_text() if (destination / "model-error.txt").exists() else str(error)
+            results.append({"candidate": spec["candidate"], "model": spec["name"], "status": "failed", "error": detail})
+            print(f"Candidate {spec['name']} rejected: {detail}", flush=True)
+            if os.environ.get("GITHUB_ACTIONS"):
+                message = detail[:2000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                print(f"::warning title={spec['name']} rejected::{message}", flush=True)
 (artifacts / "comparison.json").write_text(json.dumps(results, indent=2) + "\n")
 if not passed:
     raise RuntimeError("No candidate passed real browser OCR. The existing site will remain deployed.")
@@ -45,6 +65,7 @@ highest = max(report["portuguese_similarity"] for spec, report in passed)
 eligible = [(spec, report) for spec, report in passed if highest - report["portuguese_similarity"] <= .005]
 spec, report = min(eligible, key=lambda item: (item[0]["candidate"] != "lighton", item[0]["bytes"]))
 spec["validation"] = report
+(artifacts / "validated-model.json").write_text(json.dumps(spec, indent=2) + "\n")
 (cache / "neural-model.json").write_text(json.dumps(spec, indent=2) + "\n")
 (cache / "neural-comparison.json").write_text(json.dumps({"selected": spec["name"], "results": results, "limitation": "Synthetic Portuguese fixture; not a benchmark of the user's PDFs or actual iOS devices."}, indent=2) + "\n")
 print(f"Selected {spec['name']}: Portuguese similarity {report['portuguese_similarity']:.3f}, {spec['bytes'] / 1048576:.1f} MiB", flush=True)

@@ -16,7 +16,11 @@ concurrency:
 jobs:
   neural-ocr:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [glm, lighton]
     env:
       ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
@@ -32,10 +36,31 @@ jobs:
       - run: python3 -m pip install playwright==1.58.0 pymupdf==1.26.7 pillow==12.1.0
       - run: python3 -m playwright install --with-deps chromium
       - run: python3 scripts/prepare_neural_model.py --candidate all
-      - id: model
-        run: python3 scripts/benchmark_neural_models.py
+      - run: python3 scripts/benchmark_neural_models.py --candidate ${{ matrix.candidate }}
+        continue-on-error: true
         env:
           LUME_REQUIRE_NEURAL_MODEL: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lume-neural-candidate-${{ matrix.candidate }}
+          path: test-results/neural
+
+  select-neural-model:
+    needs: neural-ocr
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lume-neural-candidate-*
+          path: .cache/candidate-results
+      - id: model
+        run: python3 scripts/benchmark_neural_models.py --select-results .cache/candidate-results
       - name: 'OCR selecionado: ${{ steps.model.outputs.model_name }} · ${{ steps.model.outputs.model_mib }} MiB'
         run: python3 -c "import json; print(json.load(open('.cache/neural-model.json'))['name'])"
       - uses: actions/upload-artifact@v4
@@ -44,11 +69,6 @@ jobs:
           path: |
             .cache/neural-model.json
             .cache/neural-comparison.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: lume-neural-ocr-test
-          path: test-results/neural
 
   mac-vision:
     runs-on: macos-14
@@ -62,7 +82,7 @@ jobs:
           path: .cache/mac-build/Lume-OCR-Mac.zip
 
   build:
-    needs: [mac-vision, neural-ocr]
+    needs: [mac-vision, select-neural-model]
     runs-on: ubuntu-latest
     env:
       ONNXRUNTIME_NODE_INSTALL_CUDA: skip
