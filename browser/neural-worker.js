@@ -53,9 +53,7 @@ async function initialize() {
     progress("Preparando o modelo na GPU… Isso pode levar alguns minutos no primeiro uso.");
     model = await runtime.AutoModelForImageTextToText.from_pretrained(manifest.model, {
       ...options, dtype: "q4",
-      // The vocabulary table can exceed a Mac GPU's single-buffer limit. Keep
-      // that lookup in WASM; vision and decoding still run on the GPU.
-      device: { embed_tokens: "wasm", vision_encoder: "webgpu", decoder_model_merged: "webgpu" },
+      device: "webgpu",
       session_options: { enableCpuMemArena: false, enableMemPattern: false },
     });
     progress(`${name} pronto. O processamento será feito neste aparelho.`, { loaded: manifest.bytes, total: manifest.bytes, ready: true });
