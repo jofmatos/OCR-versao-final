@@ -22,6 +22,9 @@ async function initialize() {
     name = modelName(manifest);
     runtime = await import("@huggingface/transformers");
     runtime.env.allowLocalModels = false;
+    // Transformers 4.3 probes tokenizer metadata without forwarding revision.
+    // Pin its URL template too, so every lookup uses the installed cache entry.
+    runtime.env.remotePathTemplate = `{model}/resolve/${manifest.revision}/`;
     runtime.env.useFSCache = false;
     runtime.env.useBrowserCache = true;
     const cache = await caches.open(runtime.env.cacheKey).catch(() => null);
