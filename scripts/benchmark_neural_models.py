@@ -51,6 +51,13 @@ else:
             passed.append((spec, report))
         except Exception as error:
             detail = (destination / "model-error.txt").read_text() if (destination / "model-error.txt").exists() else str(error)
+            if (destination / "failed-requests.json").exists():
+                detail += "\nFailed requests: " + json.dumps(json.loads((destination / "failed-requests.json").read_text())[-3:])
+            if (destination / "browser-console.json").exists():
+                messages = json.loads((destination / "browser-console.json").read_text())
+                cache_errors = [message for message in messages if "cache" in message.lower() or "quota" in message.lower()]
+                if cache_errors:
+                    detail += "\nCache warnings: " + " | ".join(cache_errors[-3:])
             results.append({"candidate": spec["candidate"], "model": spec["name"], "status": "failed", "error": detail})
             print(f"Candidate {spec['name']} rejected: {detail}", flush=True)
             if os.environ.get("GITHUB_ACTIONS"):

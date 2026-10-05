@@ -87,17 +87,27 @@ def run(artifacts: Path, baseline=False):
                 raise RuntimeError("Test site did not start")
             with sync_playwright() as playwright:
                 proxy_server = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-                browser = playwright.chromium.launch(executable_path=os.environ.get("LUME_TEST_BROWSER"), headless=True,
+                context = playwright.chromium.launch_persistent_context(str(directory / "browser-profile"), executable_path=os.environ.get("LUME_TEST_BROWSER"), headless=True,
                     proxy={"server": proxy_server, "bypass": "127.0.0.1,localhost"} if proxy_server else None,
-                    args=["--no-sandbox", "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--disable-vulkan-surface"])
-                context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
+                    args=["--no-sandbox", "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--disable-vulkan-surface"],
+                    viewport={"width": 1440, "height": 1000}, accept_downloads=True)
                 network = []
                 context.on("request", lambda request: network.append((request.method, request.url)))
-                context.on("requestfailed", lambda request: print("Request failed:", urlsplit(request.url).hostname, urlsplit(request.url).path, request.failure, flush=True))
+                failed_requests = []
+                def request_failed(request):
+                    url = urlsplit(request.url)
+                    failed_requests.append({"host": url.hostname, "path": url.path, "error": request.failure})
+                    (artifacts / "failed-requests.json").write_text(json.dumps(failed_requests, indent=2))
+                context.on("requestfailed", request_failed)
                 page = context.new_page()
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
-                page.on("console", lambda message: print("browser:", message.text) if message.type == "error" else None)
+                console_messages = []
+                def browser_console(message):
+                    if message.type in ["error", "warning"]:
+                        console_messages.append(message.text)
+                        (artifacts / "browser-console.json").write_text(json.dumps(console_messages, indent=2))
+                page.on("console", browser_console)
                 page.goto(base, wait_until="networkidle")
                 page.evaluate("navigator.serviceWorker.ready.then(() => true)")
                 page.wait_for_function("navigator.serviceWorker.controller !== null")
@@ -139,6 +149,9 @@ def run(artifacts: Path, baseline=False):
                 page.screenshot(path=str(artifacts / "actual-browser-ocr.png"), full_page=True)
                 assert not errors, errors
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
+                cache_info = page.evaluate("""async () => ({storage: await navigator.storage.estimate(), caches: await Promise.all((await caches.keys()).map(async name => ({name, files: (await (await caches.open(name)).keys()).map(request => {const url = new URL(request.url); return {host: url.hostname, path: url.pathname};})})))})""")
+                (artifacts / "browser-cache.json").write_text(json.dumps(cache_info, indent=2))
+                notice(f"{label} cache", f"Browser cache entries: {sum(len(item['files']) for item in cache_info['caches'])}; usage {cache_info['storage'].get('usage')}; quota {cache_info['storage'].get('quota')}")
                 # A new worker must be able to load its models without network.
                 page.evaluate("window.LumeBrowser.neural.terminate(); window.LumeBrowser.neural = null;")
                 context.set_offline(True)
@@ -161,8 +174,8 @@ def run(artifacts: Path, baseline=False):
                         else:
                             baselines[engine] = {"error": result.get("error")}
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
-                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "execution": model_info["execution"], "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
-                browser.close()
+                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "execution": model_info["execution"], "browser_profile": "persistent", "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
+                context.close()
                 print(f"Actual browser OCR passed: Portuguese similarity {score:.3f}, accents, numbers, TXT, WebGPU and offline model reload.")
         finally:
             server.terminate()
