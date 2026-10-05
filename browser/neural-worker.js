@@ -13,7 +13,7 @@ async function initialize() {
     if (!self.isSecureContext || !navigator.gpu) throw new Error("Este motor precisa de WebGPU. Use uma versão atual do Chrome no Mac, com aceleração gráfica ativada, ou selecione outro motor.");
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("O navegador não disponibilizou a GPU. Ative a aceleração gráfica no Chrome e reabra o navegador.");
-    progress("Verificando o modelo e o espaço no navegador…");
+    progress("Verificando a configuração do modelo…");
     const configUrl = new URL("./neural-model.json", import.meta.url);
     configUrl.search = new URL(import.meta.url).search;
     const response = await fetch(configUrl);
@@ -30,10 +30,9 @@ async function initialize() {
       const url = `https://huggingface.co/${manifest.model}/resolve/${manifest.revision}/${file}`;
       return Boolean(await cache.match(url));
     });
-    const storage = await navigator.storage?.estimate?.().catch(() => null);
-    if (missing > 0 && storage?.quota && storage.quota - (storage.usage || 0) < missing * 1.15) {
-      throw new Error("Falta espaço de armazenamento no navegador. Libere espaço antes de instalar este modelo.");
-    }
+    // Storage estimates can shrink below current usage and include padding.
+    // They must not block loading existing files. Cache writes and the real
+    // offline restart check determine whether installation is reusable.
     progress(missing ? `Carregando ${name}… O download inicial pode levar alguns minutos.` : `Carregando ${name} dos arquivos já instalados…`, { total: manifest.bytes });
     runtime.env.backends.onnx.wasm.numThreads = 1;
     runtime.env.backends.onnx.wasm.proxy = false;
