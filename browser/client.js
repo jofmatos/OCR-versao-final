@@ -3,6 +3,7 @@ import { createWorker, OEM, PSM } from "tesseract.js";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 import { PaddleClient } from "./paddle-client.js";
 import { MacVision } from "./mac-vision.js";
+import { NeuralClient } from "./neural-client.js";
 
 const asset = (path) => new URL(`../${path}`, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset("vendor/pdf/pdf.worker.min.mjs");
@@ -18,6 +19,7 @@ const modelStatus = (text) => {
   if (node) node.textContent = text;
 };
 const modelStateChanged = () => window.dispatchEvent(new Event("lume-model-state"));
+const neuralName = document.getElementById("neuralPanel")?.dataset.modelLabel || "OCR de documentos";
 
 function failure(message, status = 400) {
   const error = new Error(message);
@@ -171,7 +173,9 @@ class BrowserClient {
   paddlePromise = null;
   vision = null;
   visionPromise = null;
-  engine = (() => { try { const saved = localStorage.getItem("lume-ocr-engine"); return ["paddle", "vision"].includes(saved) ? saved : "tesseract"; } catch { return "tesseract"; } })();
+  neural = null;
+  neuralPromise = null;
+  engine = (() => { try { const saved = localStorage.getItem("lume-ocr-engine"); return ["paddle", "vision", "neural"].includes(saved) ? saved : "tesseract"; } catch { return "tesseract"; } })();
   previews = new Map();
   generation = 0;
 
@@ -288,6 +292,31 @@ class BrowserClient {
     return this.visionPromise;
   }
 
+  async ensureNeural() {
+    if (this.neuralPromise) return this.neuralPromise;
+    if (this.neural?.alive) return this.neural;
+    modelStatus(`Preparando ${neuralName}… Verificando o navegador.`);
+    if (!window.isSecureContext || !navigator.gpu) throw failure(`${neuralName} precisa de WebGPU. Use uma versão atual do Chrome com aceleração gráfica, ou selecione outro motor.`);
+    const neural = new NeuralClient((event) => {
+      modelStatus(event.message);
+      if (this.record?.doc.status === "processing") this.record.doc.progress.message = event.message;
+      const bar = document.getElementById("neuralProgress");
+      if (bar) { bar.hidden = Boolean(event.ready); if (event.total && Number.isFinite(event.loaded)) bar.value = Math.min(100, event.loaded / event.total * 100); else bar.removeAttribute("value"); }
+    });
+    this.neural = neural;
+    this.neuralPromise = (async () => {
+      try {
+        if (this.worker) { await this.worker.terminate(); this.worker = null; this.workerLanguage = null; }
+        this.paddle?.terminate(); this.paddle = null;
+        await neural.request("init"); return neural;
+      }
+      catch (error) { neural.terminate(); if (this.neural === neural) this.neural = null; throw failure(`Não foi possível preparar o ${neuralName}. ${error.message}`); }
+      finally { this.neuralPromise = null; const bar = document.getElementById("neuralProgress"); if (bar) bar.hidden = true; modelStateChanged(); }
+    })();
+    modelStateChanged();
+    return this.neuralPromise;
+  }
+
   async preview(id, number) {
     const record = await this.recordFor(id);
     if (number < 1 || number > record.doc.page_count) throw failure("Página não encontrada.", 404);
@@ -326,16 +355,18 @@ class BrowserClient {
         if (options.mode === "ocr" || scanned) {
           const advanced = options.engine === "paddle";
           const mac = options.engine === "vision";
-          const worker = mac ? await this.ensureVision() : advanced ? await this.ensurePaddle() : await this.ensureWorker(options.language);
+          const neural = options.engine === "neural";
+          const worker = neural ? await this.ensureNeural() : mac ? await this.ensureVision() : advanced ? await this.ensurePaddle() : await this.ensureWorker(options.language);
           if (!stillActive()) return;
           const canvas = await renderPage(this.pdf, number, { quality: options.quality });
           try {
             if (mac) modelStatus("Reconhecendo texto com Apple Vision no seu Mac…");
-            const result = mac ? await worker.recognize(canvas, options.language) : advanced ? await worker.recognize(canvas, options.quality) :
+            const result = neural ? await worker.recognize(canvas, options.quality) : mac ? await worker.recognize(canvas, options.language) : advanced ? await worker.recognize(canvas, options.quality) :
               (await worker.recognize(canvas, { rotateAuto: true }, { text: true, blocks: false })).data;
             text = result.text.trim();
             confidence = Number.isFinite(result.confidence) ? Math.round(result.confidence * 10) / 10 : null;
             method = "ocr";
+            if (Array.isArray(result.warnings)) warnings.push(...result.warnings);
             if (confidence !== null && confidence < 65) warnings.push("Baixa confiança do OCR. Confira a transcrição com o original.");
           } finally { canvas.width = canvas.height = 0; }
         }
@@ -352,10 +383,11 @@ class BrowserClient {
       record.doc.status = "ready";
       record.updated_at = Date.now();
       await this.persist(record);
-      modelStatus(!record.doc.pages.some((page) => page.method === "ocr") ? "Texto lido diretamente do PDF, no seu computador." : options.engine === "vision" ? "Extração concluída com Apple Vision no seu Mac." : this.paddle ? "PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline." : "OCR básico pronto neste dispositivo. Modelos guardados no navegador.");
+      modelStatus(!record.doc.pages.some((page) => page.method === "ocr") ? "Texto lido diretamente do PDF, no seu computador." : options.engine === "neural" ? `Extração concluída com ${neuralName} neste aparelho. Confira o texto com o original.` : options.engine === "vision" ? "Extração concluída com Apple Vision no seu Mac." : options.engine === "paddle" ? "PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline." : "OCR básico pronto neste dispositivo. Modelos guardados no navegador.");
     } catch (error) {
       if (!stillActive()) return;
       if (options.engine === "vision") { this.vision?.terminate(); this.vision = null; }
+      if (options.engine === "neural") { this.neural?.terminate(); this.neural = null; }
       record.doc.status = "error";
       record.doc.error = error.message || "Não foi possível processar este PDF. Tente a qualidade padrão ou menos páginas.";
       try { await this.persist(record); } catch { /* Retain the error in memory. */ }
@@ -417,6 +449,7 @@ class BrowserClient {
       if (this.worker) { await this.worker.terminate(); this.worker = null; this.workerLanguage = null; }
       if (this.paddle) { this.paddle.terminate(); this.paddle = null; }
       if (this.vision) { this.vision.terminate(); this.vision = null; }
+      if (this.neural) { this.neural.terminate(); this.neural = null; }
       if (pdf) await pdf.loadingTask.destroy().catch(() => {});
       for (const url of this.previews.values()) URL.revokeObjectURL(url);
       this.previews.clear();
@@ -469,13 +502,37 @@ const advancedButton = document.getElementById("installAdvanced");
 const engineSelect = document.getElementById("ocrEngine");
 const visionPanel = document.getElementById("macVisionPanel");
 const visionButton = document.getElementById("connectMacVision");
+const neuralPanel = document.getElementById("neuralPanel");
+const neuralButton = document.getElementById("installNeural");
+const cancelNeural = document.getElementById("cancelNeural");
+const showEnginePanel = () => {
+  if (visionPanel) visionPanel.hidden = window.LumeBrowser.engine !== "vision";
+  if (neuralPanel) neuralPanel.hidden = window.LumeBrowser.engine !== "neural";
+};
 if (engineSelect) engineSelect.value = window.LumeBrowser.engine;
-if (visionPanel) visionPanel.hidden = window.LumeBrowser.engine !== "vision";
+showEnginePanel();
 engineSelect?.addEventListener("change", () => {
   window.LumeBrowser.engine = engineSelect.value;
+  if (engineSelect.value !== "neural") { window.LumeBrowser.neural?.terminate(); window.LumeBrowser.neural = null; }
   try { localStorage.setItem("lume-ocr-engine", engineSelect.value); } catch { /* Keep the selection in memory. */ }
-  if (visionPanel) visionPanel.hidden = engineSelect.value !== "vision";
-  modelStatus(engineSelect.value === "vision" ? "Apple Vision selecionado. Abra o aplicativo auxiliar no Mac e clique em Conectar." : engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
+  showEnginePanel();
+  modelStatus(engineSelect.value === "neural" ? `${neuralName} selecionado. Clique em Instalar para preparar o modelo neste aparelho.` : engineSelect.value === "vision" ? "Apple Vision selecionado. Abra o aplicativo auxiliar no Mac e clique em Conectar." : engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
+});
+neuralButton?.addEventListener("click", async () => {
+  neuralButton.disabled = true; neuralButton.textContent = `Preparando ${neuralName}…`;
+  modelStatus(`Preparando ${neuralName}… Carregando o motor neste navegador.`);
+  try {
+    await window.LumeBrowser.ensureNeural();
+    window.LumeBrowser.engine = "neural"; engineSelect.value = "neural";
+    try { localStorage.setItem("lume-ocr-engine", "neural"); await navigator.storage?.persist?.(); } catch { /* The browser manages its storage. */ }
+    showEnginePanel(); neuralButton.textContent = `${neuralName} preparado`;
+  } catch (error) { modelStatus(`${error.message} Você pode selecionar Tesseract, PaddleOCR ou Apple Vision.`); neuralButton.textContent = `Tentar preparar ${neuralName}`; }
+  finally { neuralButton.disabled = false; modelStateChanged(); }
+});
+cancelNeural?.addEventListener("click", () => {
+  window.LumeBrowser.neural?.terminate(); window.LumeBrowser.neural = null;
+  modelStatus(`${neuralName} cancelado. Os arquivos já baixados podem ser reutilizados na próxima tentativa.`);
+  modelStateChanged();
 });
 visionButton?.addEventListener("click", async () => {
   visionButton.disabled = true;
@@ -483,6 +540,7 @@ visionButton?.addEventListener("click", async () => {
   try {
     await window.LumeBrowser.ensureVision(true);
     window.LumeBrowser.engine = "vision"; engineSelect.value = "vision";
+    showEnginePanel();
     try { localStorage.setItem("lume-ocr-engine", "vision"); } catch { /* Retain this session's selection. */ }
     visionButton.textContent = "Apple Vision conectado";
   } catch (error) { modelStatus(error.message); visionButton.textContent = "Tentar conectar ao Mac"; }
@@ -497,7 +555,7 @@ advancedButton?.addEventListener("click", async () => {
   try {
     await window.LumeBrowser.installAdvanced();
     engineSelect.value = "paddle";
-    if (visionPanel) visionPanel.hidden = true;
+    showEnginePanel();
     modelStatus("PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline.");
     advancedButton.textContent = "OCR avançado instalado";
     installed = true;

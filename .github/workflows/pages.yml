@@ -14,6 +14,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  neural-ocr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --no-audit --no-fund
+      - run: python3 -m pip install playwright==1.58.0 pymupdf==1.26.7 pillow==12.1.0
+      - run: python3 -m playwright install --with-deps chromium
+      - run: python3 scripts/prepare_neural_model.py --candidate all
+      - id: model
+        run: python3 scripts/benchmark_neural_models.py
+        env:
+          LUME_REQUIRE_NEURAL_MODEL: '1'
+      - name: 'OCR selecionado: ${{ steps.model.outputs.model_name }} · ${{ steps.model.outputs.model_mib }} MiB'
+        run: python3 -c "import json; print(json.load(open('.cache/neural-model.json'))['name'])"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lume-neural-model
+          path: |
+            .cache/neural-model.json
+            .cache/neural-comparison.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lume-neural-ocr-test
+          path: test-results/neural
+
   mac-vision:
     runs-on: macos-14
     steps:
@@ -26,20 +62,28 @@ jobs:
           path: .cache/mac-build/Lume-OCR-Mac.zip
 
   build:
-    needs: mac-vision
+    needs: [mac-vision, neural-ocr]
     runs-on: ubuntu-latest
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      LUME_REQUIRE_NEURAL_MODEL: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: lume-mac-vision
           path: .cache/mac-build
+      - uses: actions/download-artifact@v4
+        with:
+          name: lume-neural-model
+          path: .cache
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node tests/browser/paddle-dictionary.test.mjs
+      - run: node tests/browser/neural-policy.test.mjs
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

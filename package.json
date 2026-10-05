@@ -8,6 +8,7 @@
     "serve": "python3 -m http.server 8080 --bind 127.0.0.1 --directory docs"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@paddleocr/paddleocr-js": "0.4.2",
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/por": "1.0.0",

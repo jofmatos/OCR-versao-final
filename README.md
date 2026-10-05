@@ -4,6 +4,14 @@ Leitor de PDF e conversor para **DOCX editável** ou **TXT**, com OCR em portugu
 
 ## Versão que processa no seu próprio navegador
 
+### OCR de documentos com WebGPU
+
+No menu **Motor de leitura**, escolha a opção **documentos (WebGPU)** e clique em **Instalar** no painel do modelo. O nome do modelo selecionado pelo teste aparece na interface. O site informa o tamanho do download, mostra progresso, permite cancelar e reutiliza os arquivos guardados pelo navegador. O processamento das páginas continua no aparelho; os pedidos ao Hugging Face baixam apenas arquivos públicos do modelo. Recomenda-se Chrome atualizado, aceleração gráfica ativada e um Mac com pelo menos 8 GB de memória. iPhone/iPad precisam de WebGPU e memória suficiente; não foram validados em aparelhos reais.
+
+São avaliados **GLM-OCR** e **LightOnOCR-2-1B**, especializados em OCR de documentos, usando exportações ONNX quantizadas em 4 bits. A CI testa os candidatos completos e escolhe entre os aprovados usando a similaridade do texto em português; em diferenças menores que 0,005 na amostra sintética, prefere LightOnOCR, que lista português explicitamente entre os idiomas suportados. Visão e decodificação usam WebGPU; a tabela de vocabulário fica em WASM para respeitar os limites de buffers da GPU. Um worker separado mantém a interface utilizável. A geração é determinística e limitada; repetições interrompem a leitura com aviso de texto incompleto. Não há correção generativa posterior nem uma porcentagem de confiança inventada. Revise o resultado: esses modelos também podem inserir ou omitir texto.
+
+Antes de publicar, `scripts/prepare_neural_model.py` confirma os três componentes ONNX, registra tamanhos e fixa a revisão imutável de cada candidato. `scripts/benchmark_neural_models.py` executa `scripts/smoke_neural_browser.py` com os pesos reais em Chromium/WebGPU, verifica português, acentos, números, TXT, ausência de upload e recarga offline dos pesos. Quando possível, registra PaddleOCR/Tesseract na mesma amostra como referência. A publicação depende de pelo menos um candidato passar; o resultado fica no resumo da CI e em `static/ocr-comparison.json` do site. A amostra sintética não estabelece um ranking universal nem a precisão em PDFs do usuário. `scripts/smoke_browser.py` usa respostas controladas para testar instalação, cancelamento, erros, edição e DOCX; esses testes de protocolo não medem precisão do modelo. A decisão e suas fontes estão em [docs de seleção do modelo](research/ocr-model-selection.md).
+
 ### Apple Vision: outro extrator para macOS
 
 No menu **Motor de leitura**, escolha **Apple Vision · OCR nativo do Mac**. Baixe o **Lume OCR Mac**, extraia o ZIP e abra o aplicativo. Ele aparece na barra de menus e usa o reconhecimento de texto do macOS, com nível de precisão alto e sem correção de palavras por dicionário. Não usa um modelo generativo nem precisa de Python, Terminal ou um download separado de pesos de OCR. Requer macOS 13 ou posterior; o aplicativo é universal, para Intel e Apple Silicon.
@@ -38,7 +46,9 @@ No Safari recente do Mac, use **Arquivo → Adicionar ao Dock** para abrir como 
 Para construir/hospedar essa versão:
 
 ```bash
-npm ci
+ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci
+# Necessário para habilitar LightOnOCR no build; baixa somente os metadados públicos:
+python3 scripts/prepare_neural_model.py
 npm run build
 # A pasta docs/ contém o site, os motores e os modelos básicos. Para testar localmente:
 npm run serve

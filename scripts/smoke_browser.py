@@ -65,7 +65,7 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             page.evaluate("""async () => {
                 const key = (await caches.keys()).find(key => key.startsWith('lume-browser-'));
                 const cache = await caches.open(key);
-                for (const path of ['static/browser.js', 'static/app.js', 'static/paddle-worker.js']) {
+                for (const path of ['static/browser.js', 'static/app.js', 'static/paddle-worker.js', 'static/neural-worker.js']) {
                     await cache.put(new URL(path, document.baseURI), new Response('self.oldCachedCode = true;', {headers: {'Content-Type': 'text/javascript'}}));
                 }
             }""")
@@ -93,6 +93,45 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             context.unroute("https://media.githubusercontent.com/**")
             context.unroute("https://raw.githubusercontent.com/**")
             print("Advanced install OK: versioned code ignores stale cache; slow startup shows feedback; download failure preserves basic engine.")
+            # Unsupported GPU and a delayed download must give immediate,
+            # actionable feedback. These are protocol tests, not model inference.
+            page.locator("#ocrEngine").select_option("neural")
+            expect(page.locator("#neuralPanel")).to_be_visible()
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), "Neural controls overflow on mobile"
+            page.screenshot(path=str(artifacts / "neural-mobile.png"), full_page=True)
+            page.set_viewport_size({"width": 1440, "height": 1000})
+            page.evaluate("Object.defineProperty(navigator, 'gpu', {value: undefined, configurable: true})")
+            page.locator("#installNeural").click()
+            expect(page.locator("#modelStatus")).to_contain_text("WebGPU")
+            expect(page.locator("#installNeural")).to_be_enabled()
+            page.evaluate("Object.defineProperty(navigator, 'gpu', {value: {}, configurable: true})")
+            context.route("**/static/neural-worker.js*", lambda route: route.fulfill(content_type="text/javascript", body="""
+                self.onmessage = ({data}) => {
+                    self.postMessage({progress:{message:'Preparando modelo de teste',loaded:20,total:100}});
+                    setTimeout(() => self.postMessage({id:data.id,error:'Download indisponível'}), 1000);
+                };
+            """))
+            page.locator("#installNeural").click()
+            expect(page.locator("#cancelNeural")).to_be_visible()
+            expect(page.locator("#ocrEngine")).to_be_disabled()
+            expect(page.locator("#neuralProgress")).to_be_visible()
+            expect(page.locator("#modelStatus")).to_contain_text("Download indisponível")
+            expect(page.locator("#installNeural")).to_be_enabled()
+            context.unroute("**/static/neural-worker.js*")
+            page.evaluate("""async () => {for (const key of await caches.keys()) {const c=await caches.open(key); for (const request of await c.keys()) if(request.url.includes('/static/neural-worker.js')) await c.delete(request);}}""")
+            context.route("**/static/neural-worker.js*", lambda route: route.fulfill(content_type="text/javascript", body="self.onmessage = ({data}) => self.postMessage({progress:{message:'Preparando modelo de teste',loaded:20,total:100}});"))
+            page.locator("#installNeural").click()
+            expect(page.locator("#cancelNeural")).to_be_visible()
+            page.locator("#cancelNeural").click()
+            expect(page.locator("#modelStatus")).to_contain_text("cancelado")
+            expect(page.locator("#installNeural")).to_be_enabled()
+            expect(page.locator("#ocrEngine")).to_be_enabled()
+            context.unroute("**/static/neural-worker.js*")
+            page.evaluate("""async () => {delete navigator.gpu; for (const key of await caches.keys()) {const c=await caches.open(key); for (const request of await c.keys()) if(request.url.includes('/static/neural-worker.js')) await c.delete(request);}}""")
+            page.locator("#ocrEngine").select_option("tesseract")
+            expect(page.locator("#neuralPanel")).to_be_hidden()
+            print("Neural installation UI OK: unsupported GPU, progress, failed download, cancellation and retry.")
 
         page.locator("#fileInput").set_input_files(str(native))
         expect(page.locator("#documentName")).to_have_text(native.name)
@@ -141,6 +180,41 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
         expect(page.locator("#confidence")).to_contain_text("Confiança OCR:")
         page.screenshot(path=str(artifacts / "ocr.png"), full_page=True)
         if browser_mode:
+            # Exercise the new worker protocol through real PDF rendering and
+            # export, without labelling this synthetic result as actual OCR.
+            page.evaluate("Object.defineProperty(navigator, 'gpu', {value: {}, configurable: true})")
+            context.route("**/static/neural-worker.js*", lambda route: route.fulfill(content_type="text/javascript", body="""
+                self.onmessage = ({data}) => {
+                    if (data.type === 'init') {
+                        self.postMessage({progress:{message:'Modelo de teste preparado',ready:true}});
+                        self.postMessage({id:data.id,result:{model:'protocol-fixture'}});
+                    } else if (data.image?.data instanceof Uint8ClampedArray && data.image.width > 100) {
+                        self.postMessage({id:data.id,result:{text:'Protocolo: português, acentuação e 12345.',confidence:null,warnings:['OCR por modelo generativo: confira o original.']}});
+                    } else self.postMessage({id:data.id,error:'Imagem não recebida'});
+                };
+            """))
+            page.locator("#ocrEngine").select_option("neural")
+            page.locator("#installNeural").click()
+            expect(page.locator("#installNeural")).to_have_text("LightOnOCR preparado")
+            page.locator("#convertButton").click()
+            page.locator("#confirmAction").click()
+            expect(page.locator("#exportDocx")).to_be_enabled(timeout=30000)
+            expect(page.locator("#pageText")).to_have_value("Protocolo: português, acentuação e 12345.")
+            expect(page.locator("#confidence")).to_have_text("")
+            assert page.evaluate("window.LumeBrowser.record.doc.pages[0].engine") == "neural"
+            for kind, button in [("txt", "#exportTxt"), ("docx", "#exportDocx")]:
+                with page.expect_download() as pending:
+                    page.locator(button).click()
+                output = artifacts / f"neural-protocol.{kind}"
+                pending.value.save_as(str(output))
+                exported = output.read_text("utf-8") if kind == "txt" else "\n".join(p.text for p in Document(output).paragraphs)
+                assert "Protocolo: português, acentuação e 12345." in exported
+            context.unroute("**/static/neural-worker.js*")
+            page.reload(wait_until="networkidle")
+            expect(page.locator("#ocrEngine")).to_have_value("neural")
+            expect(page.locator("#neuralPanel")).to_be_visible()
+            expect(page.locator("#pageText")).to_have_value("Protocolo: português, acentuação e 12345.")
+            print("Neural browser protocol OK: PDF canvas transfer, no fabricated confidence, TXT/DOCX and reload. Actual model inference is checked separately.")
             # Exercise the native extractor protocol without pretending this
             # Linux browser can execute Apple's Vision framework.
             page.locator("#ocrEngine").select_option("vision")
