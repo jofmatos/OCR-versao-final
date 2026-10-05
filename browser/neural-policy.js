@@ -3,6 +3,14 @@ export const MODEL_NAME = "LightOnOCR-2-1B";
 export const GLM_MODEL_ID = "onnx-community/GLM-OCR-ONNX";
 export const modelName = (manifest) => manifest.model === GLM_MODEL_ID ? "GLM-OCR" : MODEL_NAME;
 
+export async function missingModelBytes(manifest, isCached) {
+  let missing = 0;
+  for (const [file, bytes] of Object.entries(manifest.sizes)) {
+    if (!(await isCached(file))) missing += bytes;
+  }
+  return missing;
+}
+
 export function validateManifest(manifest) {
   if (!manifest?.available) throw new Error("O modelo ainda não está disponível nesta compilação do site.");
   if (![MODEL_ID, GLM_MODEL_ID].includes(manifest.model) || !/^[a-f0-9]{40}$/.test(manifest.revision) || manifest.dtype !== "q4") {

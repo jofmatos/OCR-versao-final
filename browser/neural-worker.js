@@ -1,4 +1,4 @@
-import { GLM_MODEL_ID, modelName, validateManifest, repeatsTokens, recognitionWarnings } from "./neural-policy.js";
+import { GLM_MODEL_ID, modelName, validateManifest, missingModelBytes, repeatsTokens, recognitionWarnings } from "./neural-policy.js";
 
 let model, processor, runtime, manifest, initializing;
 const execution = { embed_tokens: "webgpu", vision_encoder: "wasm", decoder_model_merged: "wasm" };
@@ -20,15 +20,21 @@ async function initialize() {
     if (!response.ok) throw new Error("Não foi possível carregar a configuração. Atualize a página e tente novamente.");
     manifest = validateManifest(await response.json());
     name = modelName(manifest);
-    const storage = await navigator.storage?.estimate?.().catch(() => null);
-    if (storage?.quota && storage.quota - (storage.usage || 0) < manifest.bytes * 1.15) {
-      throw new Error("Falta espaço de armazenamento no navegador. Libere espaço antes de instalar este modelo.");
-    }
-    progress(`Carregando ${name}… O download inicial pode levar alguns minutos.`, { total: manifest.bytes });
     runtime = await import("@huggingface/transformers");
     runtime.env.allowLocalModels = false;
     runtime.env.useFSCache = false;
     runtime.env.useBrowserCache = true;
+    const cache = await caches.open(runtime.env.cacheKey).catch(() => null);
+    if (!cache) throw new Error("O navegador não permitiu guardar este modelo. Use uma janela normal do Chrome ou selecione outro motor.");
+    const missing = await missingModelBytes(manifest, async (file) => {
+      const url = `https://huggingface.co/${manifest.model}/resolve/${manifest.revision}/${file}`;
+      return Boolean(await cache.match(url));
+    });
+    const storage = await navigator.storage?.estimate?.().catch(() => null);
+    if (missing > 0 && storage?.quota && storage.quota - (storage.usage || 0) < missing * 1.15) {
+      throw new Error("Falta espaço de armazenamento no navegador. Libere espaço antes de instalar este modelo.");
+    }
+    progress(missing ? `Carregando ${name}… O download inicial pode levar alguns minutos.` : `Carregando ${name} dos arquivos já instalados…`, { total: manifest.bytes });
     runtime.env.backends.onnx.wasm.numThreads = 1;
     runtime.env.backends.onnx.wasm.proxy = false;
     runtime.env.backends.onnx.wasm.wasmPaths = {

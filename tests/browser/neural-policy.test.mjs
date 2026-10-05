@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MODEL_ID, GLM_MODEL_ID, validateManifest, repeatsTokens, recognitionWarnings } from "../../browser/neural-policy.js";
+import { MODEL_ID, GLM_MODEL_ID, validateManifest, missingModelBytes, repeatsTokens, recognitionWarnings } from "../../browser/neural-policy.js";
+
+test("cached weights do not require a second full-model storage allocation", async () => {
+  const spec = { sizes: { "config.json": 1000, "onnx/vision_encoder_q4.onnx_data": 300000000, "onnx/decoder_model_merged_q4.onnx_data": 400000000 } };
+  assert.equal(await missingModelBytes(spec, async () => true), 0);
+  assert.equal(await missingModelBytes(spec, async (file) => file !== "config.json"), 1000);
+  assert.equal(await missingModelBytes(spec, async (file) => file !== "onnx/vision_encoder_q4.onnx_data"), 300000000);
+});
 
 test("only a complete, revision-locked model can be enabled", () => {
   const sizes = Object.fromEntries(["embed_tokens", "vision_encoder", "decoder_model_merged"].flatMap((name) => [[`onnx/${name}_q4.onnx`, 1000], [`onnx/${name}_q4.onnx_data`, 100000000]]));
