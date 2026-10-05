@@ -506,6 +506,7 @@ const neuralPanel = document.getElementById("neuralPanel");
 const neuralButton = document.getElementById("installNeural");
 const cancelNeural = document.getElementById("cancelNeural");
 const showEnginePanel = () => {
+  if (window.LumeBrowser.engine !== "neural") { window.LumeBrowser.neural?.terminate(); window.LumeBrowser.neural = null; }
   if (visionPanel) visionPanel.hidden = window.LumeBrowser.engine !== "vision";
   if (neuralPanel) neuralPanel.hidden = window.LumeBrowser.engine !== "neural";
 };
@@ -513,7 +514,6 @@ if (engineSelect) engineSelect.value = window.LumeBrowser.engine;
 showEnginePanel();
 engineSelect?.addEventListener("change", () => {
   window.LumeBrowser.engine = engineSelect.value;
-  if (engineSelect.value !== "neural") { window.LumeBrowser.neural?.terminate(); window.LumeBrowser.neural = null; }
   try { localStorage.setItem("lume-ocr-engine", engineSelect.value); } catch { /* Keep the selection in memory. */ }
   showEnginePanel();
   modelStatus(engineSelect.value === "neural" ? `${neuralName} selecionado. Clique em Instalar para preparar o modelo neste aparelho.` : engineSelect.value === "vision" ? "Apple Vision selecionado. Abra o aplicativo auxiliar no Mac e clique em Conectar." : engineSelect.value === "paddle" ? "PaddleOCR selecionado. Instale os modelos ou comece a extração para prepará-los." : "OCR básico selecionado (Tesseract).");
@@ -548,7 +548,7 @@ visionButton?.addEventListener("click", async () => {
 });
 advancedButton?.addEventListener("click", async () => {
   advancedButton.disabled = true;
-  advancedButton.textContent = "Instalando OCR avançado…";
+  advancedButton.textContent = "Instalando PaddleOCR…";
   engineSelect.disabled = true;
   modelStatus("Preparando OCR avançado… Carregando o motor neste navegador.");
   let installed = false;
@@ -557,12 +557,12 @@ advancedButton?.addEventListener("click", async () => {
     engineSelect.value = "paddle";
     showEnginePanel();
     modelStatus("PaddleOCR pronto neste dispositivo. Modelos salvos para uso offline.");
-    advancedButton.textContent = "OCR avançado instalado";
+    advancedButton.textContent = "PaddleOCR instalado";
     installed = true;
     try { await navigator.storage?.persist?.(); } catch { /* The browser may manage storage persistence itself. */ }
   } catch (error) { modelStatus(`${error.message} O OCR básico continua disponível.`); }
   finally {
-    if (!installed) advancedButton.textContent = "Tentar instalar OCR avançado";
+    if (!installed) advancedButton.textContent = "Tentar instalar PaddleOCR";
     advancedButton.disabled = false; engineSelect.disabled = false;
     modelStateChanged();
   }

@@ -34,7 +34,7 @@ const require = createRequire(import.meta.url);
 const transformerRequire = createRequire(require.resolve("@huggingface/transformers"));
 const transformerOrt = path.dirname(transformerRequire.resolve("onnxruntime-web"));
 await mkdir(path.join(output, "vendor/transformers"), { recursive: true });
-for (const suffix of ["mjs", "wasm"]) await cp(path.join(transformerOrt, `ort-wasm-simd-threaded.jsep.${suffix}`), path.join(output, "vendor/transformers", `ort-wasm-simd-threaded.jsep.${suffix}`));
+for (const suffix of ["mjs", "wasm"]) await cp(path.join(transformerOrt, `ort-wasm-simd-threaded.asyncify.${suffix}`), path.join(output, "vendor/transformers", `ort-wasm-simd-threaded.asyncify.${suffix}`));
 await mkdir(path.join(output, "vendor/onnx"), { recursive: true });
 for (const variant of ["", ".jsep"]) for (const suffix of ["mjs", "wasm"]) await cp(`node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded${variant}.${suffix}`, path.join(output, "vendor/onnx", `ort-wasm-simd-threaded${variant}.${suffix}`));
 await cp("node_modules/tesseract.js/dist/worker.min.js", path.join(output, "vendor/tesseract/worker.min.js"));
@@ -54,6 +54,7 @@ html = html.replace("Processado neste servidor. Exclusão automática em 24 h, o
 html = html.replace('  <meta name="theme-color"', '  <link rel="manifest" href="./manifest.webmanifest">\n  <meta name="theme-color"');
 html = html.replace('      <section id="emptyState"', `      <section class="local-model-panel" aria-label="OCR no dispositivo"><div><strong>Instale um motor de OCR neste navegador</strong><p id="modelStatus" role="status" aria-live="polite">PaddleOCR v5 para português, inglês e espanhol. O primeiro uso baixa cerca de 13 MB de modelos, além do motor. Seus PDFs ficam neste computador.</p><label for="ocrEngine">Motor de leitura</label><select id="ocrEngine"><option value="paddle">PaddleOCR · avançado (experimental)</option><option value="tesseract" selected>Tesseract · básico</option></select></div><div class="local-actions"><button class="button primary small" id="installAdvanced">Instalar OCR avançado</button><button class="button secondary small" id="prepareModels">Preparar OCR básico</button><button class="button dark small" id="installApp" hidden>Usar como aplicativo</button></div></section>\n      <section id="emptyState"`);
 html = html.replace("Instale um motor de OCR neste navegador", "Escolha um motor de OCR");
+html = html.replace(">Instalar OCR avançado</button>", ">Instalar PaddleOCR</button>");
 html = html.replace("PaddleOCR v5 para português, inglês e espanhol. O primeiro uso baixa cerca de 13 MB de modelos, além do motor. Seus PDFs ficam neste computador.", "O novo motor de documentos, Tesseract e PaddleOCR rodam no navegador. Apple Vision usa o OCR nativo do Mac. Seus documentos ficam neste aparelho.");
 html = html.replace('<option value="paddle">', `<option value="neural">${neuralManifest.label || "LightOnOCR"} · documentos (WebGPU)</option><option value="paddle">`);
 html = html.replace('<option value="paddle">', '<option value="vision">Apple Vision · OCR nativo do Mac</option><option value="paddle">');

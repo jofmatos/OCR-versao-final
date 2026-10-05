@@ -31,8 +31,8 @@ async function initialize() {
     runtime.env.backends.onnx.wasm.numThreads = 1;
     runtime.env.backends.onnx.wasm.proxy = false;
     runtime.env.backends.onnx.wasm.wasmPaths = {
-      mjs: local("vendor/transformers/ort-wasm-simd-threaded.jsep.mjs"),
-      wasm: local("vendor/transformers/ort-wasm-simd-threaded.jsep.wasm"),
+      mjs: local("vendor/transformers/ort-wasm-simd-threaded.asyncify.mjs"),
+      wasm: local("vendor/transformers/ort-wasm-simd-threaded.asyncify.wasm"),
     };
     const files = new Map();
     const progress_callback = (event) => {
