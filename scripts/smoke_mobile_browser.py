@@ -71,6 +71,8 @@ def run(artifacts):
                 expect(page.locator("#installAdvanced")).to_be_hidden()
                 assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
                 if profile["name"] == "iphone":
+                    page.locator("#installApp").click()
+                    expect(page.locator("#modelStatus")).to_contain_text("Adicionar à Tela de Início")
                     page.locator("#fileInput").set_input_files(str(scan))
                     expect(page.locator("#documentName")).to_have_text(scan.name)
                     page.locator("#quality").select_option("high")

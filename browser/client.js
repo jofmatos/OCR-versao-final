@@ -617,7 +617,7 @@ installButton?.addEventListener("click", async () => {
     installPrompt = null;
     installButton.hidden = true;
   } else {
-    modelStatus("No Safari do Mac, use Arquivo → Adicionar ao Dock. No Chrome, use o ícone de instalar na barra de endereço.");
+    modelStatus(window.LumeBrowser.device.ios ? "No iPhone/iPad, abra o site no Safari, toque em Compartilhar e escolha Adicionar à Tela de Início." : window.LumeBrowser.device.mobile ? "No Chrome do celular, abra o menu e escolha Adicionar à tela inicial ou Instalar aplicativo." : "No Safari do Mac, use Arquivo → Adicionar ao Dock. No Chrome, use o ícone de instalar na barra de endereço.");
   }
 });
 if (installButton && /Safari/.test(navigator.userAgent) && !/Chrome|Chromium/.test(navigator.userAgent)) installButton.hidden = false;
