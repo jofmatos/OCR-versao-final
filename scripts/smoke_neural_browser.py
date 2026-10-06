@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
+import traceback
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 from urllib.parse import urlsplit
@@ -161,10 +162,10 @@ def run(artifacts: Path, baseline=False):
                 # vision allocation that fails on full A4 pages in high quality.
                 page.locator("#pageRange").fill("2")
                 page.locator("#quality").select_option("high")
+                previous_generation = page.evaluate("window.LumeBrowser.generation")
                 page.locator("#convertButton").click()
-                if page.locator("#confirmAction").is_visible():
-                    page.locator("#confirmAction").click()
-                wait_condition(page, "['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", 900000, f"{label} A4 high recognition", artifacts)
+                page.locator("#confirmAction").click()
+                wait_condition(page, f"window.LumeBrowser.generation > {previous_generation} && ['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", 900000, f"{label} A4 high recognition", artifacts)
                 a4_doc = page.evaluate("window.LumeBrowser.record.doc")
                 assert a4_doc["status"] == "ready", a4_doc.get("error")
                 a4_text = a4_doc["pages"][0]["text"]
@@ -173,8 +174,8 @@ def run(artifacts: Path, baseline=False):
                 assert a4_score >= .93, (a4_score, a4_text)
                 for value in ["acentuação", "educação", "12345", "1.234,56", "05/10/2026"]:
                     assert value in a4_text, (value, a4_text)
-                assert a4_doc["pages"][0]["number"] == 2
-                assert any("faixas" in item for item in a4_doc["pages"][0]["warnings"])
+                assert a4_doc["pages"][0]["number"] == 2, "The A4 result must belong to page 2, not the previous conversion"
+                assert any("faixas" in item for item in a4_doc["pages"][0]["warnings"]), a4_doc["pages"][0]["warnings"]
                 notice(f"{label} A4 high passed", f"Portuguese similarity {a4_score:.3f}; full A4 raster, high quality, bounded vision regions")
                 page.screenshot(path=str(artifacts / "a4-high-browser.png"), full_page=True)
                 assert not errors, errors
@@ -195,12 +196,15 @@ def run(artifacts: Path, baseline=False):
                     page.locator("#quality").select_option("standard")
                     for engine in ["paddle", "tesseract"]:
                         page.locator("#ocrEngine").select_option(engine)
+                        previous_generation = page.evaluate("window.LumeBrowser.generation")
+                        had_text = page.evaluate("window.LumeBrowser.record.doc.pages.some(page => page.method)")
                         page.locator("#convertButton").click()
-                        if page.locator("#confirmAction").is_visible():
+                        if had_text:
                             page.locator("#confirmAction").click()
-                        page.wait_for_function("['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", timeout=300000)
+                        page.wait_for_function(f"window.LumeBrowser.generation > {previous_generation} && ['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", timeout=300000)
                         result = page.evaluate("window.LumeBrowser.record.doc")
                         if result["status"] == "ready":
+                            assert result["pages"][0]["engine"] == engine, "Baseline must use the requested engine"
                             recognized = result["pages"][0]["text"]
                             baselines[engine] = {"similarity": SequenceMatcher(None, normalized(" ".join(EXPECTED)), normalized(recognized)).ratio(), "text": recognized}
                         else:
@@ -225,5 +229,5 @@ if __name__ == "__main__":
         target = arguments.artifacts / "model-error.txt"
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
-            target.write_text(str(error))
+            target.write_text(str(error) or traceback.format_exc(limit=3))
         raise
