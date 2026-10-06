@@ -1,4 +1,5 @@
 import { GLM_MODEL_ID, modelName, validateManifest, missingModelBytes, repeatsTokens, recognitionWarnings } from "./neural-policy.js";
+import { imageBands, readableNeuralError } from "./neural-image.js";
 
 let model, processor, runtime, manifest, initializing;
 const execution = { embed_tokens: "webgpu", vision_encoder: "wasm", decoder_model_merged: "wasm" };
@@ -97,6 +98,24 @@ async function recognize(image, quality) {
   const limit = quality === "high" ? 1540 : 1120;
   const scale = Math.min(1, limit / Math.max(raw.width, raw.height));
   if (scale < 1) raw = await raw.resize(Math.max(1, Math.round(raw.width * scale)), Math.max(1, Math.round(raw.height * scale)));
+  const bands = imageBands(raw);
+  const active = bands.filter((band) => !band.blank);
+  const results = [];
+  for (const [index, band] of active.entries()) {
+    progress(active.length > 1 ? `Lendo faixa ${index + 1} de ${active.length} com ${name}…` : `Lendo a página com ${name}…`);
+    // RawImage.crop uses inclusive end coordinates.
+    const region = band.top === 0 && band.bottom === raw.height ? raw : await raw.crop([0, band.top, raw.width - 1, band.bottom - 1]);
+    results.push(await recognizeRegion(region));
+  }
+  const text = results.map((result) => result.text).filter(Boolean).join("\n\n");
+  if (text.length > 500000) throw new Error("A leitura excedeu o limite de texto desta página.");
+  const warnings = [...new Set(results.flatMap((result) => result.warnings))];
+  if (!results.length) warnings.push(...recognitionWarnings());
+  if (bands.length > 1) warnings.push("Página lida em faixas para limitar o uso de memória. Confira a ordem do texto em colunas e tabelas.");
+  return { text, confidence: null, warnings, model: name, tokens: results.reduce((total, result) => total + result.tokens, 0) };
+}
+
+async function recognizeRegion(raw) {
   const isGlm = manifest.model === GLM_MODEL_ID;
   const content = isGlm ? [{ type: "image" }, { type: "text", text: "Text Recognition:" }] : [{ type: "image" }];
   const prompt = processor.apply_chat_template([{ role: "user", content }], { tokenize: false, add_generation_prompt: true });
@@ -132,6 +151,7 @@ self.onmessage = async ({ data }) => {
     if (!result) throw new Error("Operação de OCR desconhecida.");
     self.postMessage({ id: data.id, result });
   } catch (error) {
-    self.postMessage({ id: data.id, error: error?.message || "Não foi possível iniciar este OCR. Confira a conexão e a memória disponível." });
+    console.warn("OCR de documentos:", error?.message || error);
+    self.postMessage({ id: data.id, error: readableNeuralError(error) });
   }
 };

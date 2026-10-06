@@ -4,6 +4,7 @@ import { Document, Packer, Paragraph, TextRun } from "docx";
 import { PaddleClient } from "./paddle-client.js";
 import { MacVision } from "./mac-vision.js";
 import { NeuralClient } from "./neural-client.js";
+import { devicePolicy, compatibleEngine } from "./device-policy.js";
 
 const asset = (path) => new URL(`../${path}`, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset("vendor/pdf/pdf.worker.min.mjs");
@@ -108,8 +109,7 @@ function pageSelection(value, count) {
 async function renderPage(pdf, number, { preview = false, quality = "high" } = {}) {
   const page = await pdf.getPage(number);
   const natural = page.getViewport({ scale: 1 });
-  const memory = navigator.deviceMemory || 8;
-  const pixelLimit = memory <= 4 ? 6_000_000 : 12_000_000;
+  const { pixelLimit } = devicePolicy(navigator, window.isSecureContext);
   const scale = preview ? Math.min(2, 1400 / Math.max(natural.width, natural.height)) :
     Math.min((quality === "high" ? 350 : 250) / 72, Math.sqrt(pixelLimit / (natural.width * natural.height)), 14000 / Math.max(natural.width, natural.height));
   if (!(scale > 0) || !Number.isFinite(scale)) throw failure("Esta página não tem dimensões válidas.");
@@ -175,7 +175,10 @@ class BrowserClient {
   visionPromise = null;
   neural = null;
   neuralPromise = null;
-  engine = (() => { try { const saved = localStorage.getItem("lume-ocr-engine"); return ["paddle", "vision", "neural"].includes(saved) ? saved : "tesseract"; } catch { return "tesseract"; } })();
+  preferredEngine = (() => { try { return localStorage.getItem("lume-ocr-engine") || "tesseract"; } catch { return "tesseract"; } })();
+  get device() { return devicePolicy(navigator, window.isSecureContext); }
+  get engineAvailability() { return { neural: this.device.neuralReason, vision: this.device.visionReason }; }
+  engine = compatibleEngine(this.preferredEngine, this.device);
   previews = new Map();
   generation = 0;
 
@@ -238,9 +241,10 @@ class BrowserClient {
       modelStatus("OCR pronto neste dispositivo. Modelos guardados no navegador.");
       return worker;
     })();
+    modelStateChanged();
     try { return await this.workerPromise; }
     catch { throw failure("Não foi possível preparar o OCR local. Confira a conexão e o espaço do navegador e tente novamente."); }
-    finally { this.workerPromise = null; }
+    finally { this.workerPromise = null; modelStateChanged(); }
   }
 
   async install(language = "por+eng") { return this.ensureWorker(language); }
@@ -276,6 +280,7 @@ class BrowserClient {
   }
 
   async ensureVision(recheck = false) {
+    if (this.device.visionReason) throw failure(this.device.visionReason);
     if (this.visionPromise) return this.visionPromise;
     if (this.vision && !recheck) return this.vision;
     this.vision?.terminate(); this.vision = null;
@@ -293,6 +298,7 @@ class BrowserClient {
   }
 
   async ensureNeural() {
+    if (this.device.neuralReason) throw failure(this.device.neuralReason);
     if (this.neuralPromise) return this.neuralPromise;
     if (this.neural?.alive) return this.neural;
     modelStatus(`Preparando ${neuralName}… Verificando o navegador.`);
@@ -493,7 +499,8 @@ window.LumeBrowser = new BrowserClient();
 const prepare = document.getElementById("prepareModels");
 prepare?.addEventListener("click", async () => {
   prepare.disabled = true;
-  try { await window.LumeBrowser.install(document.getElementById("language")?.value || "por+eng"); }
+  modelStatus("Preparando Tesseract neste aparelho…");
+  try { await window.LumeBrowser.install(document.getElementById("language")?.value || "por+eng"); modelStatus("Tesseract pronto. Os modelos ficam guardados neste navegador."); }
   catch (error) { modelStatus(error.message); }
   finally { prepare.disabled = false; }
 });
@@ -509,10 +516,32 @@ const showEnginePanel = () => {
   if (window.LumeBrowser.engine !== "neural") { window.LumeBrowser.neural?.terminate(); window.LumeBrowser.neural = null; }
   if (visionPanel) visionPanel.hidden = window.LumeBrowser.engine !== "vision";
   if (neuralPanel) neuralPanel.hidden = window.LumeBrowser.engine !== "neural";
+  for (const [id, engine] of [["tesseractPanel", "tesseract"], ["paddlePanel", "paddle"]]) {
+    const panel = document.getElementById(id);
+    if (panel) panel.hidden = window.LumeBrowser.engine !== engine;
+  }
 };
-if (engineSelect) engineSelect.value = window.LumeBrowser.engine;
+if (engineSelect) {
+  for (const option of engineSelect.options) {
+    const reason = window.LumeBrowser.engineAvailability[option.value];
+    option.disabled = Boolean(reason);
+    if (reason) option.textContent = option.value === "vision" ? "Apple Vision · somente no Mac" : `${neuralName} · indisponível neste aparelho`;
+  }
+  engineSelect.value = window.LumeBrowser.engine;
+}
+const deviceNotice = document.getElementById("deviceNotice");
+if (deviceNotice) {
+  deviceNotice.textContent = window.LumeBrowser.device.mobile ? "No celular, use Tesseract ou PaddleOCR. O motor de documentos está habilitado somente no computador nesta versão; Apple Vision precisa de um Mac." : window.LumeBrowser.device.neuralReason;
+  deviceNotice.hidden = !deviceNotice.textContent;
+}
+if (window.LumeBrowser.preferredEngine !== window.LumeBrowser.engine) {
+  modelStatus("A escolha anterior não está disponível neste aparelho. Tesseract selecionado; você pode escolher outro motor compatível.");
+  try { localStorage.setItem("lume-ocr-engine", window.LumeBrowser.engine); } catch { /* Keep this session's choice. */ }
+}
 showEnginePanel();
 engineSelect?.addEventListener("change", () => {
+  const unavailable = window.LumeBrowser.engineAvailability[engineSelect.value];
+  if (unavailable) { engineSelect.value = window.LumeBrowser.engine; modelStatus(unavailable); return; }
   window.LumeBrowser.engine = engineSelect.value;
   try { localStorage.setItem("lume-ocr-engine", engineSelect.value); } catch { /* Keep the selection in memory. */ }
   showEnginePanel();

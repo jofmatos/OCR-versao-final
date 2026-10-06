@@ -25,6 +25,8 @@ O [modelo publicado](https://jofmatos.github.io/OCR-versao-final/static/neural-m
 - Não há uma segunda IA reescrevendo o OCR. A geração usa `do_sample: false`, limite de tokens e interrupção por repetição, com aviso quando o texto puder estar incompleto.
 - Testes de protocolo exercitam a interface e a exportação com respostas controladas. O teste separado `scripts/smoke_neural_browser.py` usa os pesos reais e verifica português, números, TXT, ausência de envio de documentos e inicialização offline. A publicação depende de sua aprovação.
 - Não foram testados aparelhos iOS reais nem PDFs do usuário.
+- A interface habilita apenas os motores compatíveis com o aparelho e mostra somente a preparação da escolha atual. LightOnOCR fica restrito ao computador nesta versão; iPhone/iPad (inclusive modo desktop) e Android usam Tesseract ou PaddleOCR. Uma preferência incompatível guardada é substituída por Tesseract com aviso.
+- Após o relato de `OrtRun / SafeIntOnOverflow / Integer overflow` em um PC, a leitura passou a limitar cada faixa a 2.048 patches de visão, considerando o arredondamento do processador. O limite anterior de maior dimensão não controlava o tensor de atenção, que cresce com o quadrado do número de patches. A publicação agora também exige uma página A4 escaneada em qualidade alta. Faixas preferem intervalos entre linhas; colunas e tabelas exigem revisão da ordem.
 
 ## Fontes
 

@@ -73,6 +73,15 @@ def run(artifacts: Path, baseline=False):
         with pymupdf.open() as pdf:
             page = pdf.new_page(width=1000, height=260)
             page.insert_image(page.rect, stream=png.getvalue())
+            large = Image.new("RGB", (1654, 2339), "white")
+            large_draw = ImageDraw.Draw(large)
+            large_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 58)
+            for y, text in zip([100, 600, 780], EXPECTED):
+                large_draw.text((80, y), text, fill="black", font=large_font)
+            large_png = BytesIO()
+            large.save(large_png, "PNG")
+            page = pdf.new_page(width=595, height=842)
+            page.insert_image(page.rect, stream=large_png.getvalue())
             pdf.save(scan)
         server = subprocess.Popen(["python3", "-m", "http.server", "8082", "--bind", "127.0.0.1", "--directory", str(prefix)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
@@ -125,6 +134,7 @@ def run(artifacts: Path, baseline=False):
                 page.locator("#fileInput").set_input_files(str(scan))
                 expect(page.locator("#documentName")).to_have_text(scan.name)
                 page.locator("#quality").select_option("standard")
+                page.locator("#pageRange").fill("1")
                 page.locator("#convertButton").click()
                 wait_condition(page, "['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", 600000, f"{label} recognition", artifacts)
                 doc = page.evaluate("window.LumeBrowser.record.doc")
@@ -147,6 +157,26 @@ def run(artifacts: Path, baseline=False):
                 download.value.save_as(str(artifacts / "actual-ocr.txt"))
                 assert normalized((artifacts / "actual-ocr.txt").read_text()) == normalized(text)
                 page.screenshot(path=str(artifacts / "actual-browser-ocr.png"), full_page=True)
+                # The original short fixture could not exercise the dense
+                # vision allocation that fails on full A4 pages in high quality.
+                page.locator("#pageRange").fill("2")
+                page.locator("#quality").select_option("high")
+                page.locator("#convertButton").click()
+                if page.locator("#confirmAction").is_visible():
+                    page.locator("#confirmAction").click()
+                wait_condition(page, "['ready', 'error'].includes(window.LumeBrowser?.record?.doc.status)", 900000, f"{label} A4 high recognition", artifacts)
+                a4_doc = page.evaluate("window.LumeBrowser.record.doc")
+                assert a4_doc["status"] == "ready", a4_doc.get("error")
+                a4_text = a4_doc["pages"][0]["text"]
+                a4_score = SequenceMatcher(None, normalized(" ".join(EXPECTED)), normalized(a4_text)).ratio()
+                (artifacts / "a4-high-text.txt").write_text(a4_text)
+                assert a4_score >= .93, (a4_score, a4_text)
+                for value in ["acentuação", "educação", "12345", "1.234,56", "05/10/2026"]:
+                    assert value in a4_text, (value, a4_text)
+                assert a4_doc["pages"][0]["number"] == 2
+                assert any("faixas" in item for item in a4_doc["pages"][0]["warnings"])
+                notice(f"{label} A4 high passed", f"Portuguese similarity {a4_score:.3f}; full A4 raster, high quality, bounded vision regions")
+                page.screenshot(path=str(artifacts / "a4-high-browser.png"), full_page=True)
                 assert not errors, errors
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
                 cache_info = page.evaluate("""async () => ({storage: await navigator.storage.estimate(), caches: await Promise.all((await caches.keys()).map(async name => ({name, files: (await (await caches.open(name)).keys()).map(request => {const url = new URL(request.url); return {host: url.hostname, path: url.pathname};})})))})""")
@@ -161,6 +191,8 @@ def run(artifacts: Path, baseline=False):
                 context.set_offline(False)
                 baselines = {}
                 if baseline:
+                    page.locator("#pageRange").fill("1")
+                    page.locator("#quality").select_option("standard")
                     for engine in ["paddle", "tesseract"]:
                         page.locator("#ocrEngine").select_option(engine)
                         page.locator("#convertButton").click()
@@ -174,7 +206,7 @@ def run(artifacts: Path, baseline=False):
                         else:
                             baselines[engine] = {"error": result.get("error")}
                 assert not any(method != "GET" for method, url in network if url.startswith("http")), "Document data was uploaded"
-                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "execution": model_info["execution"], "browser_profile": "persistent", "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
+                (artifacts / "report.json").write_text(json.dumps({"model": label, "dtype": "q4", "execution": model_info["execution"], "browser_profile": "persistent", "quality": "standard", "fixture_pixels": [1000, 260], "portuguese_similarity": score, "a4_high_similarity": a4_score, "a4_high_passed": True, "a4_fixture_pixels": [1654, 2339], "native_browser_webgpu": True, "cached_offline_restart": True, "document_uploads": False, "baselines": baselines}, indent=2) + "\n")
                 context.close()
                 print(f"Actual browser OCR passed: Portuguese similarity {score:.3f}, accents, numbers, TXT, WebGPU and offline model reload.")
         finally:

@@ -24,6 +24,7 @@ if arguments.select_results:
         spec = json.loads(source.read_text())
         report = spec.get("validation", {})
         if not (report.get("portuguese_similarity", 0) >= .93 and report.get("native_browser_webgpu") is True
+                and report.get("a4_high_passed") is True and report.get("a4_high_similarity", 0) >= .93
                 and report.get("cached_offline_restart") is True and report.get("document_uploads") is False):
             raise ValueError(f"Artifact lacks successful real browser validation: {source}")
         passed.append((spec, report))
@@ -41,6 +42,7 @@ else:
         print(f"Testing {spec['name']} with actual weights in Chromium/WebGPU + WASM", flush=True)
         try:
             subprocess.run(["npm", "run", "build"], check=True)
+            subprocess.run([sys.executable, "scripts/smoke_mobile_browser.py", "--artifacts", str(destination / "mobile")], check=True, timeout=300)
             command = [sys.executable, "scripts/smoke_neural_browser.py", "--artifacts", str(destination)]
             if not passed:
                 command.append("--baseline")

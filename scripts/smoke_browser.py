@@ -50,6 +50,10 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
         native, scan = fixtures(Path(temporary))
         browser = playwright.chromium.launch(executable_path=executable, headless=True, args=["--no-sandbox"])
         context = browser.new_context(viewport={"width": 1440, "height": 1000}, accept_downloads=True)
+        if browser_mode:
+            # Platform/GPU stubs only enable controlled worker protocol tests.
+            # Actual model inference is checked in smoke_neural_browser.py.
+            context.add_init_script("Object.defineProperty(navigator, 'platform', {value:'MacIntel'}); Object.defineProperty(navigator, 'gpu', {value:{}, configurable:true});")
         network = []
         context.on("request", lambda request: network.append((request.method, request.url)))
         page = context.new_page()
@@ -77,6 +81,9 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             context.route("https://raw.githubusercontent.com/**", lambda route: route.fulfill(status=503, body="Unavailable", headers={"Access-Control-Allow-Origin": "*"}))
             delayed_worker = []
             context.route("**/static/paddle-worker.js*", lambda route: delayed_worker.append(route))
+            expect(page.locator("#installAdvanced")).to_be_hidden()
+            page.locator("#ocrEngine").select_option("paddle")
+            expect(page.locator("#prepareModels")).to_be_hidden()
             page.locator("#installAdvanced").click()
             expect(page.locator("#modelStatus")).to_contain_text("Preparando OCR avançado")
             expect(page.locator("#installAdvanced")).to_have_text("Instalando PaddleOCR…")
@@ -89,7 +96,9 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             expect(page.locator("#modelStatus")).to_contain_text("OCR básico continua disponível", timeout=30000)
             expect(page.locator("#installAdvanced")).to_be_enabled()
             expect(page.locator("#installAdvanced")).to_have_text("Tentar instalar PaddleOCR")
-            expect(page.locator("#ocrEngine")).to_have_value("tesseract")
+            expect(page.locator("#ocrEngine")).to_have_value("paddle")
+            page.locator("#ocrEngine").select_option("tesseract")
+            expect(page.locator("#installAdvanced")).to_be_hidden()
             context.unroute("https://media.githubusercontent.com/**")
             context.unroute("https://raw.githubusercontent.com/**")
             print("Advanced install OK: versioned code ignores stale cache; slow startup shows feedback; download failure preserves basic engine.")
@@ -102,10 +111,12 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             page.screenshot(path=str(artifacts / "neural-mobile.png"), full_page=True)
             page.set_viewport_size({"width": 1440, "height": 1000})
             page.evaluate("Object.defineProperty(navigator, 'gpu', {value: undefined, configurable: true})")
-            page.locator("#installNeural").click()
-            expect(page.locator("#modelStatus")).to_contain_text("WebGPU")
-            expect(page.locator("#installNeural")).to_be_enabled()
+            reason = page.evaluate("window.LumeBrowser.ensureNeural().then(() => '', error => error.message)")
+            assert "WebGPU" in reason
+            page.evaluate("window.dispatchEvent(new Event('lume-model-state'))")
+            expect(page.locator("#installNeural")).to_be_disabled()
             page.evaluate("Object.defineProperty(navigator, 'gpu', {value: {}, configurable: true})")
+            page.evaluate("window.dispatchEvent(new Event('lume-model-state'))")
             context.route("**/static/neural-worker.js*", lambda route: route.fulfill(content_type="text/javascript", body="""
                 self.onmessage = ({data}) => {
                     self.postMessage({progress:{message:'Preparando modelo de teste',loaded:20,total:100}});
@@ -128,7 +139,7 @@ def run(base_url: str, artifacts: Path, executable: str | None, browser_mode: bo
             expect(page.locator("#installNeural")).to_be_enabled()
             expect(page.locator("#ocrEngine")).to_be_enabled()
             context.unroute("**/static/neural-worker.js*")
-            page.evaluate("""async () => {delete navigator.gpu; for (const key of await caches.keys()) {const c=await caches.open(key); for (const request of await c.keys()) if(request.url.includes('/static/neural-worker.js')) await c.delete(request);}}""")
+            page.evaluate("""async () => {for (const key of await caches.keys()) {const c=await caches.open(key); for (const request of await c.keys()) if(request.url.includes('/static/neural-worker.js')) await c.delete(request);}}""")
             page.locator("#ocrEngine").select_option("tesseract")
             expect(page.locator("#neuralPanel")).to_be_hidden()
             print("Neural installation UI OK: unsupported GPU, progress, failed download, cancellation and retry.")

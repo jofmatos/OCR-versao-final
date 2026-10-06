@@ -81,7 +81,7 @@
   function canExport() { return state.doc?.status === "ready" && hasText(); }
 
   function updateControls() {
-    const installing = Boolean(window.LumeBrowser?.paddlePromise || window.LumeBrowser?.visionPromise || window.LumeBrowser?.neuralPromise);
+    const installing = Boolean(window.LumeBrowser?.workerPromise || window.LumeBrowser?.paddlePromise || window.LumeBrowser?.visionPromise || window.LumeBrowser?.neuralPromise);
     const locked = state.busy || isProcessing() || state.exporting || installing;
     $("chooseFile").disabled = state.busy;
     $("removeFile").disabled = state.busy || state.exporting;
@@ -95,8 +95,8 @@
     if ($("prepareModels")) $("prepareModels").disabled = locked || Boolean(window.LumeBrowser?.workerPromise);
     if ($("installAdvanced")) $("installAdvanced").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
     if ($("ocrEngine")) $("ocrEngine").disabled = locked || Boolean(window.LumeBrowser?.paddlePromise);
-    if ($("connectMacVision")) $("connectMacVision").disabled = locked;
-    if ($("installNeural")) $("installNeural").disabled = locked;
+    if ($("installNeural")) $("installNeural").disabled = locked || Boolean(window.LumeBrowser?.engineAvailability?.neural);
+    if ($("connectMacVision")) $("connectMacVision").disabled = locked || Boolean(window.LumeBrowser?.engineAvailability?.vision);
     if ($("cancelNeural")) $("cancelNeural").hidden = !(window.LumeBrowser?.neuralPromise || (isProcessing() && window.LumeBrowser?.engine === "neural"));
     $("previousPage").disabled = !state.doc || state.page <= 1;
     $("nextPage").disabled = !state.doc || state.page >= state.doc.page_count;
